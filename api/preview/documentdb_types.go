@@ -64,6 +64,8 @@ type DocumentDBSpec struct {
 
 	// Overrides default log level for the DocumentDB cluster.
 	LogLevel string `json:"logLevel,omitempty"`
+
+	RestoreFromBackup string `json:"restoreFromBackup,omitempty"`
 }
 
 type Resource struct {

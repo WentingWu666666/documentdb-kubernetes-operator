@@ -4,8 +4,6 @@
 package cnpg
 
 import (
-	"cmp"
-
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,6 +50,7 @@ func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, docu
 			},
 		},
 		Spec: func() cnpgv1.ClusterSpec {
+			storageClass := "default"
 			spec := cnpgv1.ClusterSpec{
 				Instances: documentdb.Spec.InstancesPerNode,
 				ImageName: documentdb_image,
@@ -84,8 +83,7 @@ func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, docu
 						"host replication all all trust",
 					},
 				},
-				Bootstrap: getBootstrapConfiguration(),
-				LogLevel:  cmp.Or(documentdb.Spec.LogLevel, "info"),
+				Bootstrap: getBootstrapConfiguration(documentdb),
 			}
 			spec.MaxStopDelay = getMaxStopDelayOrDefault(documentdb)
 			return spec
@@ -102,7 +100,7 @@ func getInheritedMetadataLabels(appName string) *cnpgv1.EmbeddedObjectMetadata {
 	}
 }
 
-func getBootstrapConfiguration() *cnpgv1.BootstrapConfiguration {
+func getBootstrapConfiguration(documentdb dbpreview.DocumentDB) *cnpgv1.BootstrapConfiguration {
 	return &cnpgv1.BootstrapConfiguration{
 		InitDB: &cnpgv1.BootstrapInitDB{
 			PostInitSQL: []string{

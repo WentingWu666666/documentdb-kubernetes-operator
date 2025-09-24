@@ -172,6 +172,10 @@ spec:
                 description: WalReplicaPluginName is the name of the wal replica plugin
                   to use.
                 type: string
+              restoreFromBackup:
+                description: RestoreFromBackup configures restoring DocumentDB
+                  from a backup.
+                type: string # name of the backup to restore from
             required:
             - instancesPerNode
             - nodeCount
