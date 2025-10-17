@@ -5,7 +5,6 @@ package controller
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
@@ -77,138 +76,81 @@ var _ = Describe("ScheduledBackup Controller", func() {
 		Expect(result.Requeue).To(BeFalse())
 	})
 
-	Describe("isBackupRunning", func() {
-		It("returns true when any backup is in a non-terminal phase", func() {
-			r := &ScheduledBackupReconciler{}
-
-			backupRunning := dbpreview.Backup{
-				Status: dbpreview.BackupStatus{
-					Phase: cnpgv1.BackupPhaseRunning,
-				},
-			}
-			backupList := &dbpreview.BackupList{Items: []dbpreview.Backup{backupRunning}}
-			Expect(r.isBackupRunning(backupList)).To(BeTrue())
-		})
-
-		It("returns false for an empty backup list", func() {
-			r := &ScheduledBackupReconciler{}
-			Expect(r.isBackupRunning(&dbpreview.BackupList{Items: []dbpreview.Backup{}})).To(BeFalse())
-		})
-
-		It("returns false when all backups are terminal or empty phase", func() {
-			r := &ScheduledBackupReconciler{}
-
-			backupCompleted := dbpreview.Backup{
-				Status: dbpreview.BackupStatus{
-					Phase: cnpgv1.BackupPhaseCompleted,
-				},
-			}
-			backupFailed := dbpreview.Backup{
-				Status: dbpreview.BackupStatus{
-					Phase: cnpgv1.BackupPhaseFailed,
-				},
-			}
-			backupEmpty := dbpreview.Backup{
-				Status: dbpreview.BackupStatus{
-					Phase: cnpgv1.BackupPhase(""),
-				},
-			}
-			backupList := &dbpreview.BackupList{Items: []dbpreview.Backup{backupCompleted, backupFailed, backupEmpty}}
-			Expect(r.isBackupRunning(backupList)).To(BeFalse())
-		})
-	})
-
 	Describe("getNextScheduleTime", func() {
-		It("returns next time based on creation time when no backups exist", func() {
-			schedule, err := cron.ParseStandard("0 0 * * *")
-			Expect(err).NotTo(HaveOccurred())
+		scheduledBackup := dbpreview.ScheduledBackup{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              scheduledBackupName,
+				Namespace:         scheduledBackupNamespace,
+				CreationTimestamp: metav1.Time{Time: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+			},
+			Spec: dbpreview.ScheduledBackupSpec{
+				Schedule: "0 0 * * *",
+				Cluster: cnpgv1.LocalObjectReference{
+					Name: clusterName,
+				},
+			},
+		}
+		schedule, _ := cron.ParseStandard("0 0 * * *")
 
-			r := &ScheduledBackupReconciler{}
-			scheduledBackupCreationTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+		It("returns next time based on ScheduledBackup creation time when no backups exist", func() {
+			nextFromCreation := getNextScheduleTime(&scheduledBackup, schedule, &dbpreview.BackupList{Items: []dbpreview.Backup{}})
+			Expect(nextFromCreation).To(Equal(schedule.Next(scheduledBackup.CreationTimestamp.Time)))
 
-			nextFromCreation := r.getNextScheduleTime(schedule, scheduledBackupCreationTime, &dbpreview.BackupList{Items: []dbpreview.Backup{}})
-			Expect(nextFromCreation).To(Equal(schedule.Next(scheduledBackupCreationTime)))
+			nextFromCreation = getNextScheduleTime(&scheduledBackup, schedule, nil)
+			Expect(nextFromCreation).To(Equal(schedule.Next(scheduledBackup.CreationTimestamp.Time)))
 		})
 
-		It("returns next time based on the last backup creation timestamp when backups exist", func() {
-			schedule, err := cron.ParseStandard("0 0 * * *")
-			Expect(err).NotTo(HaveOccurred())
+		It("returns next time based on the last backup with matching label", func() {
+			t1 := time.Date(2024, 12, 1, 1, 0, 0, 0, time.UTC)
+			t2 := time.Date(2024, 12, 2, 1, 0, 0, 0, time.UTC)
+			t3 := time.Date(2024, 12, 3, 1, 0, 0, 0, time.UTC)
 
-			r := &ScheduledBackupReconciler{}
-
-			t1 := time.Date(2025, 10, 11, 1, 0, 0, 0, time.UTC)
-			t2 := time.Date(2025, 10, 12, 2, 0, 0, 0, time.UTC)
 			backupList := &dbpreview.BackupList{
 				Items: []dbpreview.Backup{
 					{
 						ObjectMeta: metav1.ObjectMeta{
 							CreationTimestamp: metav1.Time{Time: t1},
+							Labels:            map[string]string{"scheduledbackup": scheduledBackupName},
 						},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
 							CreationTimestamp: metav1.Time{Time: t2},
+							Labels:            map[string]string{"scheduledbackup": scheduledBackupName},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							CreationTimestamp: metav1.Time{Time: t3},
+							Labels:            map[string]string{"scheduledbackup": "other-scheduled-backup"},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							CreationTimestamp: metav1.Time{Time: t3},
 						},
 					},
 				},
 			}
-			nextFromLastBackup := r.getNextScheduleTime(schedule, time.Time{}, backupList)
-			Expect(nextFromLastBackup).To(Equal(schedule.Next(t2)))
+
+			nextScheduleTime := getNextScheduleTime(&scheduledBackup, schedule, backupList)
+			Expect(nextScheduleTime).To(Equal(schedule.Next(t2)))
 		})
-	})
 
-	Describe("createBackup", func() {
-		It("creates a Backup with expected fields", func() {
-			// fake client with no existing backups
-			fakeClient := fake.NewClientBuilder().
-				WithScheme(scheme).
-				Build()
-
-			reconciler := &ScheduledBackupReconciler{
-				Client: fakeClient,
-				Scheme: scheme,
-			}
-
-			scheduledBackup := &dbpreview.ScheduledBackup{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      scheduledBackupName,
-					Namespace: scheduledBackupNamespace,
-				},
-				Spec: dbpreview.ScheduledBackupSpec{
-					Schedule: "0 0 * * *",
-					Cluster: cnpgv1.LocalObjectReference{
-						Name: clusterName,
+		It("returns next time based on ScheduledBackup creation time when no matching backups exist", func() {
+			backupList := &dbpreview.BackupList{
+				Items: []dbpreview.Backup{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							CreationTimestamp: metav1.Time{Time: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)},
+							Labels:            map[string]string{"scheduledbackup": "other-scheduled-backup"},
+						},
 					},
 				},
 			}
 
-			err := reconciler.createBackup(ctx, scheduledBackup)
-			Expect(err).NotTo(HaveOccurred())
-
-			backupList := &dbpreview.BackupList{}
-			err = fakeClient.List(ctx, backupList)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(len(backupList.Items)).To(Equal(1))
-
-			backup := backupList.Items[0]
-
-			// name prefix and parseable timestamp suffix
-			prefix := scheduledBackupName + "-"
-			Expect(strings.HasPrefix(backup.Name, prefix)).To(BeTrue())
-
-			suffix := strings.TrimPrefix(backup.Name, prefix)
-			const layout = "20060102-150405"
-			_, parseErr := time.Parse(layout, suffix)
-			Expect(parseErr).NotTo(HaveOccurred())
-
-			// namespace
-			Expect(backup.Namespace).To(Equal(scheduledBackupNamespace))
-
-			// label
-			Expect(backup.Labels).To(HaveKeyWithValue("scheduledbackup", scheduledBackupName))
-
-			// cluster reference
-			Expect(backup.Spec.Cluster.Name).To(Equal(clusterName))
+			nextScheduleTime := getNextScheduleTime(&scheduledBackup, schedule, backupList)
+			Expect(nextScheduleTime).To(Equal(schedule.Next(scheduledBackup.CreationTimestamp.Time)))
 		})
 	})
 })

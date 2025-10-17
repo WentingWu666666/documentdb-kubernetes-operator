@@ -5,13 +5,10 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/robfig/cron"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,18 +51,19 @@ func (r *ScheduledBackupReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
-	if r.isBackupRunning(backupList) {
+	if backupList.IsBackupRunning() {
 		// If a backup is currently running, requeue after a short delay
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
 	// Calculate next schedule time
-	nextScheduleTime := r.getNextScheduleTime(schedule, scheduledBackup.CreationTimestamp.Time, backupList)
+	nextScheduleTime := getNextScheduleTime(scheduledBackup, schedule, backupList)
 
 	// If it's time to create a backup
 	now := time.Now()
 	if !now.Before(nextScheduleTime) {
-		if err := r.createBackup(ctx, scheduledBackup); err != nil {
+		backup := scheduledBackup.CreateBackup(now)
+		if err := r.Create(ctx, backup); err != nil {
 			logger.Error(err, "Failed to create backup")
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
@@ -84,63 +82,37 @@ func (r *ScheduledBackupReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
-func (r *ScheduledBackupReconciler) isBackupRunning(backupList *dbpreview.BackupList) bool {
-	for _, backup := range backupList.Items {
-		if backup.Status.Phase != "" && backup.Status.Phase != cnpgv1.BackupPhaseCompleted && backup.Status.Phase != cnpgv1.BackupPhaseFailed {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *ScheduledBackupReconciler) getNextScheduleTime(schedule cron.Schedule, scheduledBackupCreationTime time.Time, backupList *dbpreview.BackupList) time.Time {
+func getNextScheduleTime(scheduledBackup *dbpreview.ScheduledBackup, schedule cron.Schedule, backupList *dbpreview.BackupList) time.Time {
 	if backupList == nil || len(backupList.Items) == 0 {
-		return schedule.Next(scheduledBackupCreationTime)
+		return schedule.Next(scheduledBackup.CreationTimestamp.Time)
 	}
 
-	lastBackupStartTime := time.Time{}
+	lastBackupCreationTime := time.Time{}
 	for _, backup := range backupList.Items {
-		if backup.CreationTimestamp.After(lastBackupStartTime) {
-			lastBackupStartTime = backup.CreationTimestamp.Time
+		if backup.Labels["scheduledbackup"] == scheduledBackup.Name {
+			if backup.CreationTimestamp.After(lastBackupCreationTime) {
+				lastBackupCreationTime = backup.CreationTimestamp.Time
+			}
 		}
 	}
-	return schedule.Next(lastBackupStartTime)
-}
 
-// createBackup creates a new Backup resource for this scheduled backup
-func (r *ScheduledBackupReconciler) createBackup(ctx context.Context, scheduledBackup *dbpreview.ScheduledBackup) error {
-	logger := log.FromContext(ctx)
-
-	// Generate backup name with timestamp
-	backupName := fmt.Sprintf("%s-%s", scheduledBackup.Name, time.Now().Format("20060102-150405"))
-
-	backup := &dbpreview.Backup{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      backupName,
-			Namespace: scheduledBackup.Namespace,
-			Labels: map[string]string{
-				"scheduledbackup": scheduledBackup.Name,
-			},
-		},
-		Spec: dbpreview.BackupSpec{
-			Cluster: scheduledBackup.Spec.Cluster,
-		},
+	if lastBackupCreationTime.IsZero() {
+		return schedule.Next(scheduledBackup.CreationTimestamp.Time)
 	}
 
-	if err := r.Create(ctx, backup); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			logger.Info("Backup already exists", "name", backupName)
-			return nil
-		}
-		logger.Error(err, "Failed to create Backup")
-		return err
-	}
-
-	return nil
+	return schedule.Next(lastBackupCreationTime)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ScheduledBackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Register field index for spec.cluster so we can query Backups by cluster name
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &dbpreview.Backup{}, "spec.cluster", func(rawObj client.Object) []string {
+		backup := rawObj.(*dbpreview.Backup)
+		return []string{backup.Spec.Cluster.Name}
+	}); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dbpreview.ScheduledBackup{}).
 		Complete(r)

@@ -100,13 +100,30 @@ func (r *BackupReconciler) createCNPGBackup(ctx context.Context, backup *dbprevi
 func (r *BackupReconciler) updateBackupStatus(ctx context.Context, backup *dbpreview.Backup, cnpgBackup *cnpgv1.Backup) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	needsUpdate := false
 	newPhase := cnpgBackup.Status.Phase
 
 	if backup.Status.Phase != newPhase {
 		backup.Status.Phase = newPhase
+		needsUpdate = true
+	}
+
+	if !areTimesEqual(backup.Status.StartedAt, cnpgBackup.Status.StartedAt) {
 		backup.Status.StartedAt = cnpgBackup.Status.StartedAt
+		needsUpdate = true
+	}
+
+	if !areTimesEqual(backup.Status.StoppedAt, cnpgBackup.Status.StoppedAt) {
 		backup.Status.StoppedAt = cnpgBackup.Status.StoppedAt
+		needsUpdate = true
+	}
+
+	if backup.Status.Error != cnpgBackup.Status.Error {
 		backup.Status.Error = cnpgBackup.Status.Error
+		needsUpdate = true
+	}
+
+	if needsUpdate {
 		if err := r.Status().Update(ctx, backup); err != nil {
 			logger.Error(err, "Failed to update Backup status")
 			return ctrl.Result{}, err
@@ -128,6 +145,17 @@ func (r *BackupReconciler) updateBackupStatus(ctx context.Context, backup *dbpre
 
 	// Backup is still in progress, requeue to check status again
 	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+}
+
+// areTimesEqual compares two metav1.Time pointers for equality
+func areTimesEqual(t1, t2 *metav1.Time) bool {
+	if t1 == nil && t2 == nil {
+		return true
+	}
+	if t1 == nil || t2 == nil {
+		return false
+	}
+	return t1.Equal(t2)
 }
 
 // SetupWithManager sets up the controller with the Manager.
