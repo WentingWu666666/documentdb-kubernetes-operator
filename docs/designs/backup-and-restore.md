@@ -2,6 +2,20 @@
 
 ## Backup
 
+### VolumeSnapshotClass
+
+A [VolumeSnapshotClass](https://kubernetes.io/docs/concepts/storage/volume-snapshot-classes/) must exist before taking volume snapshots. It specifies which CSI driver to use for creating volume snapshots.
+
+**CNPG's Approach:** CNPG requires users to manually create the VolumeSnapshotClass.
+
+**Our Approach:** The DocumentDB operator automatically creates a VolumeSnapshotClass when a Backup resource is created, if one doesn't already exist.
+
+#### Current Support
+
+Currently, we only support **AKS (Azure Kubernetes Service)** with the **`disk.csi.azure.com`** CSI driver.
+
+The operator will automatically create a VolumeSnapshotClass named `azure-disk-snapclass` configured with the Azure disk CSI driver when you create your first Backup resource.
+
 ### Backup CRD
 
 We have our own Backup CRD and backup controller in the DocumentDB operator. When a Backup resource is created, it triggers a [Kubernetes Volume Snapshot](https://kubernetes.io/blog/2020/12/10/kubernetes-1.20-volume-snapshot-moves-to-ga/#what-is-a-volume-snapshot) on the primary instance of a DocumentDB cluster.
@@ -138,44 +152,9 @@ metadata:
   name: documentdb-preview-restore
   namespace: documentdb-preview-ns
 spec:
-  nodeCount: 1
-  instancesPerNode: 1
-  documentDBImage: ghcr.io/microsoft/documentdb/documentdb-local:16
-  resource:
-    pvcSize: 10Gi
-  exposeViaService:
-    serviceType: ClusterIP
   bootstrap:
     recovery:
       backup:
         name: backup-example
+  ......
 ```
-
-## Prerequisites
-
-### VolumeSnapshotClass
-
-Before taking volume snapshots, users must create a [VolumeSnapshotClass](https://kubernetes.io/docs/concepts/storage/volume-snapshot-classes/). The driver specified in the VolumeSnapshotClass depends on the underlying storage class.
-
-**Example for Azure:**
-
-```yaml
-apiVersion: snapshot.storage.k8s.io/v1
-kind: VolumeSnapshotClass
-metadata:
-  name: azure-disk-snapclass
-  annotations:
-    snapshot.storage.kubernetes.io/is-default-class: "true"
-driver: disk.csi.azure.com
-deletionPolicy: Delete
-```
-### Open Questions
-
-- **Should the operator automatically create a VolumeSnapshotClass if one doesn't exist?**
-  - Current approach: Users must manually create a VolumeSnapshotClass before creating backups
-  - Concern: This may not be user-friendly - should the operator automatically create a default VolumeSnapshotClass when a backup is requested if none exists?
-  - Considerations:
-    - Different cloud providers require different CSI drivers (e.g., `disk.csi.azure.com` for Azure, `ebs.csi.aws.com` for AWS)
-    - The operator would need cloud provider detection logic
-    - Users might have specific preferences for snapshot configurations
-

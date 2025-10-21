@@ -5,9 +5,11 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	snapshotv1 "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,6 +42,26 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
+	cluster := &dbpreview.DocumentDB{}
+	clusterKey := client.ObjectKey{
+		Name:      backup.Spec.Cluster.Name,
+		Namespace: backup.Namespace,
+	}
+	if err := r.Get(ctx, clusterKey, cluster); err != nil {
+		logger.Error(err, "Failed to get cluster for Backup", "clusterName", backup.Spec.Cluster.Name)
+		return ctrl.Result{}, err
+	}
+
+	// Ensure VolumeSnapshotClass exists
+	if err := r.ensureVolumeSnapshotClass(ctx, cluster.Spec.Environment); err != nil {
+		backup.Status.Error = "Failed to ensure VolumeSnapshotClass: " + err.Error()
+		backup.Status.Phase = cnpgv1.BackupPhaseFailed
+		if updateErr := r.Status().Update(ctx, backup); updateErr != nil {
+			return ctrl.Result{}, updateErr
+		}
+		return ctrl.Result{}, err
+	}
+
 	// Get or create the CNPG Backup
 	cnpgBackup := &cnpgv1.Backup{}
 	cnpgBackupKey := client.ObjectKey{
@@ -59,6 +81,68 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Update status based on CNPG Backup status
 	return r.updateBackupStatus(ctx, backup, cnpgBackup)
+}
+
+// ensureVolumeSnapshotClass creates a VolumeSnapshotClass based on the cloud environment
+func (r *BackupReconciler) ensureVolumeSnapshotClass(ctx context.Context, environment string) error {
+	logger := log.FromContext(ctx)
+
+	// Check if any VolumeSnapshotClass exists
+	vscList := &snapshotv1.VolumeSnapshotClassList{}
+	if err := r.List(ctx, vscList); err != nil {
+		logger.Error(err, "Failed to list VolumeSnapshotClasses")
+		return err
+	}
+
+	for _, vsc := range vscList.Items {
+		if val, ok := vsc.Annotations["snapshot.storage.kubernetes.io/is-default-class"]; ok && val == "true" {
+			return nil
+		}
+	}
+	logger.Info("No default VolumeSnapshotClass found, will create one")
+
+	vsc := buildVolumeSnapshotClass(environment)
+	if vsc == nil {
+		err := fmt.Errorf("Please create a default VolumeSnapshotClass before creating backups")
+		logger.Error(err, "Failed to build VolumeSnapshotClass", "environment", environment)
+		return err
+	}
+
+	if err := r.Create(ctx, vsc); err != nil {
+		logger.Error(err, "Failed to create VolumeSnapshotClass")
+		return err
+	}
+
+	logger.Info("Successfully created VolumeSnapshotClass", "name", vsc.Name, "driver", vsc.Driver)
+	return nil
+}
+
+// buildVolumeSnapshotClass builds a VolumeSnapshotClass based on cloud provider
+func buildVolumeSnapshotClass(environment string) *snapshotv1.VolumeSnapshotClass {
+	deletionPolicy := snapshotv1.VolumeSnapshotContentDelete
+
+	var driver string
+	var name string
+
+	switch environment {
+	case "aks":
+		driver = "disk.csi.azure.com"
+		name = "azure-disk-snapclass"
+	default:
+		// TODO: add support for other cloud providers
+		return nil
+	}
+
+	return &snapshotv1.VolumeSnapshotClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Annotations: map[string]string{
+				"snapshot.storage.kubernetes.io/is-default-class": "true",
+			},
+		},
+		Driver:         driver,
+		DeletionPolicy: deletionPolicy,
+	}
 }
 
 // createCNPGBackup creates a new CNPG Backup resource
@@ -160,6 +244,11 @@ func areTimesEqual(t1, t2 *metav1.Time) bool {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Register VolumeSnapshotClass with the scheme
+	if err := snapshotv1.AddToScheme(mgr.GetScheme()); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dbpreview.Backup{}).
 		Owns(&cnpgv1.Backup{}).
