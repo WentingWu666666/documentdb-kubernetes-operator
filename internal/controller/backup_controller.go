@@ -35,11 +35,20 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	backup := &dbpreview.Backup{}
 	if err := r.Get(ctx, req.NamespacedName, backup); err != nil {
 		if apierrors.IsNotFound(err) {
-			// TODO: cleanup if needed
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed to get Backup")
 		return ctrl.Result{}, err
+	}
+
+	if backup.Status.ExpiredAt != nil && time.Now().After(backup.Status.ExpiredAt.Time) {
+		// Backup has expired, delete it
+		if err := r.Delete(ctx, backup); err != nil {
+			logger.Error(err, "Failed to delete expired Backup", "backupName", backup.Name)
+			return ctrl.Result{}, err
+		}
+		logger.Info("Successfully deleted expired Backup", "backupName", backup.Name)
+		return ctrl.Result{}, nil
 	}
 
 	cluster := &dbpreview.DocumentDB{}
@@ -80,7 +89,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// Update status based on CNPG Backup status
-	return r.updateBackupStatus(ctx, backup, cnpgBackup)
+	return r.updateBackupStatus(ctx, backup, cnpgBackup, *cluster)
 }
 
 // ensureVolumeSnapshotClass creates a VolumeSnapshotClass based on the cloud environment
@@ -181,7 +190,7 @@ func (r *BackupReconciler) createCNPGBackup(ctx context.Context, backup *dbprevi
 }
 
 // updateBackupStatus updates the Backup status based on CNPG Backup status
-func (r *BackupReconciler) updateBackupStatus(ctx context.Context, backup *dbpreview.Backup, cnpgBackup *cnpgv1.Backup) (ctrl.Result, error) {
+func (r *BackupReconciler) updateBackupStatus(ctx context.Context, backup *dbpreview.Backup, cnpgBackup *cnpgv1.Backup, cluster dbpreview.DocumentDB) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	needsUpdate := false
@@ -207,6 +216,24 @@ func (r *BackupReconciler) updateBackupStatus(ctx context.Context, backup *dbpre
 		needsUpdate = true
 	}
 
+	if backup.Status.IsDone() {
+		retentionHours := 0
+		if backup.Spec.RetentionDays != nil {
+			retentionHours = *backup.Spec.RetentionDays * 24
+		} else if cluster.Spec.Backup != nil {
+			retentionHours = cluster.Spec.Backup.RetentionDays * 24
+		}
+
+		retentionStart := backup.Status.StoppedAt
+		if retentionStart == nil {
+			retentionStart = &backup.CreationTimestamp
+		}
+
+		expirationTime := retentionStart.Add(time.Duration(retentionHours) * time.Hour)
+		backup.Status.ExpiredAt = &metav1.Time{Time: expirationTime}
+		needsUpdate = true
+	}
+
 	if needsUpdate {
 		if err := r.Status().Update(ctx, backup); err != nil {
 			logger.Error(err, "Failed to update Backup status")
@@ -214,17 +241,12 @@ func (r *BackupReconciler) updateBackupStatus(ctx context.Context, backup *dbpre
 		}
 	}
 
-	// Determine requeue behavior based on phase
-	if cnpgBackup.Status.Phase == cnpgv1.BackupPhaseCompleted {
-		logger.Info("Backup completed", "phase", newPhase, "name", backup.Name)
-		// Stop reconciling - backup is complete
-		return ctrl.Result{}, nil
-	}
-
-	if cnpgBackup.Status.Phase == cnpgv1.BackupPhaseFailed {
-		logger.Error(nil, "Backup failed", "phase", newPhase, "name", backup.Name)
-		// Stop reconciling - backup has failed
-		return ctrl.Result{}, nil
+	if backup.Status.IsDone() {
+		requeueAfter := time.Until(backup.Status.ExpiredAt.Time)
+		if requeueAfter < 0 {
+			requeueAfter = time.Minute
+		}
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
 	// Backup is still in progress, requeue to check status again

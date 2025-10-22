@@ -18,6 +18,11 @@ type ScheduledBackupSpec struct {
 	// Schedule defines when backups should be created using cron expression format.
 	// +kubebuilder:validation:Required
 	Schedule string `json:"schedule"`
+
+	// RetentionDays specifies how many days the backups should be retained.
+	// If not specified, the default retention period from the cluster's backup policy is used.
+	// +optional
+	RetentionDays *int `json:"retentionDays,omitempty"`
 }
 
 // ScheduledBackupStatus defines the observed state of ScheduledBackup
@@ -28,6 +33,7 @@ type ScheduledBackupStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".spec.cluster.name"
 // +kubebuilder:printcolumn:name="Schedule",type="string",JSONPath=".spec.schedule"
+// +kubebuilder:printcolumn:name="Retention Days",type="integer",JSONPath=".spec.retentionDays"
 type ScheduledBackup struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`

@@ -25,7 +25,8 @@ func (sb *ScheduledBackup) CreateBackup(now time.Time) *Backup {
 			},
 		},
 		Spec: BackupSpec{
-			Cluster: sb.Spec.Cluster,
+			Cluster:       sb.Spec.Cluster,
+			RetentionDays: sb.Spec.RetentionDays,
 		},
 	}
 }

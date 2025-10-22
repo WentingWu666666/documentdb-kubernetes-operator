@@ -14,6 +14,11 @@ type BackupSpec struct {
 	// The cluster must exist in the same namespace as the Backup resource.
 	// +kubebuilder:validation:Required
 	Cluster cnpgv1.LocalObjectReference `json:"cluster"`
+
+	// RetentionDays specifies how many days the backup should be retained.
+	// If not specified, the default retention period from the cluster's backup policy is used.
+	// +optional
+	RetentionDays *int `json:"retentionDays,omitempty"`
 }
 
 // BackupStatus defines the observed state of Backup.
@@ -29,6 +34,10 @@ type BackupStatus struct {
 	// +optional
 	StoppedAt *metav1.Time `json:"stoppedAt,omitempty"`
 
+	// ExpiredAt is the time when the backup is considered expired and can be deleted.
+	// +optional
+	ExpiredAt *metav1.Time `json:"expiredAt,omitempty"`
+
 	// Error contains error information if the backup failed.
 	// +optional
 	Error string `json:"error,omitempty"`
@@ -40,6 +49,7 @@ type BackupStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=".status.phase",description="Backup phase"
 // +kubebuilder:printcolumn:name="Started",type=date,JSONPath=".status.startedAt",description="Backup start time"
 // +kubebuilder:printcolumn:name="Stopped",type=date,JSONPath=".status.stoppedAt",description="Backup completion time"
+// +kubebuilder:printcolumn:name="Expired",type=date,JSONPath=".status.expiredAt",description="Backup expiration time"
 // +kubebuilder:printcolumn:name="Error",type=string,JSONPath=".status.error",description="Backup error information"
 type Backup struct {
 	metav1.TypeMeta   `json:",inline"`

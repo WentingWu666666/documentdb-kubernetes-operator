@@ -71,31 +71,18 @@ spec:
 
 ## Retention Policy
 
-Retention policies control how long backups are preserved before automatic deletion. The DocumentDB operator supports retention policies at multiple levels:
+Retention policies control how long backups are preserved before automatic deletion. Backups are retained according to their configured retention period, even if the cluster is deleted—allowing users to restore from deleted clusters if needed.
 
-### Cluster-Level Retention
+The DocumentDB operator supports retention policies at three levels, with the following precedence:
+1. **Backup-level retention** (highest priority) - applies to individual backups
+2. **ScheduledBackup-level retention** - applies to backups created by a schedule
+3. **Cluster-level retention** (default) - applies to all backups from a cluster
 
-**Field:** `cluster.spec.backup.retentionPeriod`
+### Backup-Level Retention (On-Demand)
 
-**Purpose:** Defines how long backups are retained after the parent cluster is deleted.
+**Field:** `spec.retentionDays`
 
-**Example:**
-```yaml
-apiVersion: db.microsoft.com/preview
-kind: DocumentDB
-metadata:
-  name: documentdb-preview
-spec:
-  backup:
-    retentionPeriod: "30d"  # Retain backups for 30 days after cluster deletion
-  # ...other fields...
-```
-
-### Backup-Level Retention
-
-**Field:** `backup.spec.retentionPeriod`
-
-**Purpose:** Defines how long an individual on-demand backup is retained before automatic deletion.
+**Purpose:** Overrides the cluster-level retention for an individual on-demand backup. Useful for long-term retention of critical backups.
 
 **Example:**
 ```yaml
@@ -106,14 +93,14 @@ metadata:
 spec:
   cluster:
     name: documentdb-preview
-  retentionPeriod: "7d"  # Automatically delete after 7 days
+  retentionDays: 90  # Override: retain this backup for 90 days
 ```
 
-### ScheduledBackup Retention
+### ScheduledBackup-Level Retention
 
-**Field:** `scheduledBackup.spec.retentionPeriod`
+**Field:** `spec.retentionDays`
 
-**Purpose:** Defines how long backups created by the scheduled job are retained.
+**Purpose:** Overrides the cluster-level retention for backups created by a scheduled backup job.
 
 **Example:**
 ```yaml
@@ -122,11 +109,36 @@ kind: ScheduledBackup
 metadata:
   name: backup-example
 spec:
-  schedule: "0 0 0 * * *"
+  schedule: "0 0 0 * * *"  # Daily at midnight
   cluster:
     name: documentdb-preview
-  retentionPeriod: "14d"  # Keep scheduled backups for 14 days
+  retentionDays: 14  # Override: retain scheduled backups for 14 days
 ```
+
+### Cluster-Level Retention (Default)
+
+**Field:** `spec.backup.retentionDays`
+
+**Purpose:** Sets the default retention period for all backups created from this cluster.
+
+**Example:**
+```yaml
+apiVersion: db.microsoft.com/preview
+kind: DocumentDB
+metadata:
+  name: documentdb-preview
+spec:
+  backup:
+    retentionDays: 30  # Default: retain all backups for 30 days
+  # ...other fields...
+```
+
+
+### Expiration and Cleanup
+
+- **Expiration Time:** Calculated as `backup.status.stoppedAt + retentionDays` (or `backup.creationTimestamp + retentionDays` if backup failed)
+- **Automatic Deletion:** When a backup's expiration time is reached, the operator automatically deletes the Backup resource and its associated volume snapshot
+- **Status Field:** `backup.status.expiredAt` indicates when the backup will be automatically deleted
 
 Note: CNPG does not yet support retention policies for volume snapshots. This is an ongoing discussion in the CNPG community (see [issue #6009](https://github.com/cloudnative-pg/cloudnative-pg/issues/6009)).
 
