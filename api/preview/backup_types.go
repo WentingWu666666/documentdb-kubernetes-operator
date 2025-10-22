@@ -49,7 +49,7 @@ type BackupStatus struct {
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=".status.phase",description="Backup phase"
 // +kubebuilder:printcolumn:name="Started",type=date,JSONPath=".status.startedAt",description="Backup start time"
 // +kubebuilder:printcolumn:name="Stopped",type=date,JSONPath=".status.stoppedAt",description="Backup completion time"
-// +kubebuilder:printcolumn:name="Expired",type=date,JSONPath=".status.expiredAt",description="Backup expiration time"
+// +kubebuilder:printcolumn:name="Expired",type=string,JSONPath=".status.expiredAt",description="Backup expiration time"
 // +kubebuilder:printcolumn:name="Error",type=string,JSONPath=".status.error",description="Backup error information"
 type Backup struct {
 	metav1.TypeMeta   `json:",inline"`

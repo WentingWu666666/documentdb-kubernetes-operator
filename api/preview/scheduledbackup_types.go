@@ -27,6 +27,14 @@ type ScheduledBackupSpec struct {
 
 // ScheduledBackupStatus defines the observed state of ScheduledBackup
 type ScheduledBackupStatus struct {
+
+	// LastScheduledTime is the time when the last backup was scheduled by this ScheduledBackup.
+	// +optional
+	LastScheduledTime *metav1.Time `json:"lastScheduledTime,omitempty"`
+
+	// NextScheduledTime is the time when the next backup is scheduled to be created by this ScheduledBackup.
+	// +optional
+	NextScheduledTime *metav1.Time `json:"nextScheduledTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true
