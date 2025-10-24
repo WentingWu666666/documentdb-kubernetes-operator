@@ -106,7 +106,7 @@ func areTimesEqual(t1, t2 *metav1.Time) bool {
 
 // IsDone returns true if the backup operation is completed or failed.
 func (backupStatus *BackupStatus) IsDone() bool {
-	return backupStatus.Phase == cnpgv1.BackupPhaseCompleted || backupStatus.Phase == cnpgv1.BackupPhaseFailed
+	return backupStatus.Phase == cnpgv1.BackupPhaseCompleted || backupStatus.Phase == cnpgv1.BackupPhaseFailed || backupStatus.Phase == BackupPhaseSkipped
 }
 
 // IsExpired returns true if the backup has expired based on the current time.

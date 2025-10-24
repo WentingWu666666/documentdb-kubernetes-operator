@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	dbpreview "github.com/microsoft/documentdb-operator/api/preview"
+	util "github.com/microsoft/documentdb-operator/internal/utils"
 )
 
 // BackupReconciler reconciles a Backup object
@@ -62,6 +63,21 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.Get(ctx, clusterKey, cluster); err != nil {
 		logger.Error(err, "Failed to get cluster for Backup", "clusterName", backup.Spec.Cluster.Name)
 		return ctrl.Result{}, err
+	}
+
+	// Skip backup if the cluster is not primary
+	replicationContext, err := util.GetReplicationContext(ctx, r.Client, *cluster)
+	if err != nil {
+		logger.Error(err, "Failed to determine replication context")
+		return ctrl.Result{}, err
+	}
+	if !replicationContext.IsPrimary() {
+		backup.Status.Phase = dbpreview.BackupPhaseSkipped
+		backup.Status.Error = "Backups can only be created from the primary cluster"
+		if err := r.Status().Update(ctx, backup); err != nil {
+			logger.Error(err, "Failed to update Backup status to skipped")
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Ensure VolumeSnapshotClass exists
