@@ -28,7 +28,7 @@ type ScheduledBackupReconciler struct {
 
 // Reconcile handles the reconciliation loop for ScheduledBackup resources.
 func (r *ScheduledBackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx, "namespace", req.NamespacedName.Namespace, "scheduledBackup", req.NamespacedName.Name)
+	logger := log.FromContext(ctx)
 
 	// Fetch the ScheduledBackup resource
 	scheduledBackup := &dbpreview.ScheduledBackup{}

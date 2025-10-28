@@ -13,7 +13,7 @@ import (
 )
 
 // CreateCNPGBackup creates a CNPG Backup resource based on the DocumentDB Backup spec.
-func (backup *Backup) CreateCNPGBackup(scheme *runtime.Scheme) (*cnpgv1.Backup, error) {
+func (backup *Backup) CreateCNPGBackup(scheme *runtime.Scheme, clusterName string) (*cnpgv1.Backup, error) {
 	cnpgBackup := &cnpgv1.Backup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      backup.Name,
@@ -22,7 +22,7 @@ func (backup *Backup) CreateCNPGBackup(scheme *runtime.Scheme) (*cnpgv1.Backup, 
 		Spec: cnpgv1.BackupSpec{
 			Method: cnpgv1.BackupMethodVolumeSnapshot,
 			Cluster: cnpgv1.LocalObjectReference{
-				Name: backup.Spec.Cluster.Name,
+				Name: clusterName,
 			},
 		},
 	}

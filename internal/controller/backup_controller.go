@@ -30,7 +30,7 @@ type BackupReconciler struct {
 
 // Reconcile handles the reconciliation loop for Backup resources.
 func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx, "namespace", req.NamespacedName.Namespace, "backupName", req.NamespacedName.Name)
+	logger := log.FromContext(ctx)
 
 	// Fetch the Backup resource
 	backup := &dbpreview.Backup{}
@@ -62,6 +62,12 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	if err := r.Get(ctx, clusterKey, cluster); err != nil {
 		logger.Error(err, "Failed to get cluster for Backup", "clusterName", backup.Spec.Cluster.Name)
+		backup.Status.Error = "Failed to get associated cluster: " + err.Error()
+		backup.Status.Phase = cnpgv1.BackupPhaseFailed
+		if updateErr := r.Status().Update(ctx, backup); updateErr != nil {
+			logger.Error(updateErr, "Failed to update Backup status after cluster get failure")
+			return ctrl.Result{}, updateErr
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -72,12 +78,14 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 	if !replicationContext.IsPrimary() {
+		logger.Info("Cluster is not primary, skipping backup")
 		backup.Status.Phase = dbpreview.BackupPhaseSkipped
 		backup.Status.Error = "Backups can only be created from the primary cluster"
 		if err := r.Status().Update(ctx, backup); err != nil {
 			logger.Error(err, "Failed to update Backup status to skipped")
 			return ctrl.Result{}, err
 		}
+		return ctrl.Result{}, nil
 	}
 
 	// Ensure VolumeSnapshotClass exists
@@ -99,7 +107,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.Get(ctx, cnpgBackupKey, cnpgBackup); err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("Creating new CNPG Backup for DocumentDB Backup")
-			return r.createCNPGBackup(ctx, backup, logger)
+			return r.createCNPGBackup(ctx, backup, cluster, logger)
 		}
 		logger.Error(err, "Failed to get CNPG Backup")
 		return ctrl.Result{}, err
@@ -172,8 +180,13 @@ func buildVolumeSnapshotClass(environment string) *snapshotv1.VolumeSnapshotClas
 }
 
 // createCNPGBackup creates a new CNPG Backup resource
-func (r *BackupReconciler) createCNPGBackup(ctx context.Context, backup *dbpreview.Backup, logger logr.Logger) (ctrl.Result, error) {
-	cnpgBackup, err := backup.CreateCNPGBackup(r.Scheme)
+func (r *BackupReconciler) createCNPGBackup(ctx context.Context, backup *dbpreview.Backup, cluster *dbpreview.DocumentDB, logger logr.Logger) (ctrl.Result, error) {
+	cnpgClusterName := cluster.Name
+	if cluster.Spec.ClusterReplication != nil && cluster.Spec.ClusterReplication.Primary != "" {
+		cnpgClusterName = cluster.Spec.ClusterReplication.Primary
+	}
+
+	cnpgBackup, err := backup.CreateCNPGBackup(r.Scheme, cnpgClusterName)
 	if err != nil {
 		logger.Error(err, "Failed to build CNPG Backup")
 		return ctrl.Result{}, err
@@ -191,6 +204,8 @@ func (r *BackupReconciler) createCNPGBackup(ctx context.Context, backup *dbprevi
 
 // updateBackupStatus updates the Backup status based on CNPG Backup status
 func (r *BackupReconciler) updateBackupStatus(ctx context.Context, backup *dbpreview.Backup, cnpgBackup *cnpgv1.Backup, backupConfiguration *dbpreview.BackupConfiguration, logger logr.Logger) (ctrl.Result, error) {
+	logger.Info("Updating Backup status from CNPG Backup", "phase", cnpgBackup.Status.Phase)
+
 	backupPatch := client.MergeFrom(backup.DeepCopy())
 	needsUpdate := backup.UpdateStatus(cnpgBackup, backupConfiguration)
 

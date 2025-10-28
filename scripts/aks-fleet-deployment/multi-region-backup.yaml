@@ -1,0 +1,24 @@
+apiVersion: db.microsoft.com/preview
+kind: Backup
+metadata:
+  name: backup-test
+  namespace: documentdb-preview-ns
+spec:
+  cluster:
+    name: documentdb-preview
+
+---
+apiVersion: placement.kubernetes-fleet.io/v1beta1
+kind: ClusterResourcePlacement
+metadata:
+  name: documentdb-crp
+spec:
+  resourceSelectors:
+    - group: ""
+      version: v1
+      kind: Namespace
+      name: documentdb-preview-ns
+  policy:
+    placementType: PickAll
+  strategy:
+    type: RollingUpdate

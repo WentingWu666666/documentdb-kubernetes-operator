@@ -21,6 +21,8 @@ type BackupSpec struct {
 	RetentionDays *int `json:"retentionDays,omitempty"`
 }
 
+const BackupPhaseSkipped cnpgv1.BackupPhase = "Skipped"
+
 // BackupStatus defines the observed state of Backup.
 type BackupStatus struct {
 	// Phase represents the current phase of the backup operation.
