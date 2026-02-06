@@ -27,6 +27,10 @@ Ready to get started? Check out our [Quick Start Guide](https://documentdb.io/do
 
 For information on setting up your development environment to contribute to this project, see our [Developer Guide](docs/developer-guides/development-environment.md).
 
+### Publishing Packages
+
+Want to make your container images and Helm charts publicly accessible? See our guide on [Making Packages Public](docs/developer-guides/making-packages-public.md) for step-by-step instructions.
+
 ## 🌐 Cloud Platform Setup Guides
 
 Deploy DocumentDB clusters across different cloud platforms and configurations:
