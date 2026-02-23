@@ -95,27 +95,27 @@ func TestReplicationContext_GetReplicationSource(t *testing.T) {
 		{
 			name: "Replica state returns primary cluster",
 			context: ReplicationContext{
-				state:          Replica,
-				PrimaryCluster: "primary-cluster",
-				Others:         []string{"other-cluster-1", "other-cluster-2"},
+				state:                        Replica,
+				PrimaryCNPGClusterName:       "primary-cluster",
+				OtherCNPGClusterNames:        []string{"other-cluster-1", "other-cluster-2"},
 			},
 			expected: "primary-cluster",
 		},
 		{
 			name: "Primary state returns first other cluster",
 			context: ReplicationContext{
-				state:          Primary,
-				PrimaryCluster: "primary-cluster",
-				Others:         []string{"other-cluster-1", "other-cluster-2"},
+				state:                        Primary,
+				PrimaryCNPGClusterName:       "primary-cluster",
+				OtherCNPGClusterNames:        []string{"other-cluster-1", "other-cluster-2"},
 			},
 			expected: "other-cluster-1",
 		},
 		{
 			name: "Replica state with empty Others still returns primary cluster",
 			context: ReplicationContext{
-				state:          Replica,
-				PrimaryCluster: "primary-cluster",
-				Others:         []string{},
+				state:                        Replica,
+				PrimaryCNPGClusterName:       "primary-cluster",
+				OtherCNPGClusterNames:        []string{},
 			},
 			expected: "primary-cluster",
 		},
@@ -141,8 +141,8 @@ func TestReplicationContext_GetReplicationSource(t *testing.T) {
 			}
 		}()
 		ctx := ReplicationContext{
-			state:  Primary,
-			Others: []string{},
+			state:                   Primary,
+			OtherCNPGClusterNames:  []string{},
 		}
 		_ = ctx.GetReplicationSource()
 	})
@@ -154,8 +154,8 @@ func TestReplicationContext_GetReplicationSource(t *testing.T) {
 			}
 		}()
 		ctx := ReplicationContext{
-			state:  NoReplication,
-			Others: []string{},
+			state:                   NoReplication,
+			OtherCNPGClusterNames:  []string{},
 		}
 		_ = ctx.GetReplicationSource()
 	})
@@ -300,30 +300,30 @@ func TestReplicationContext_String(t *testing.T) {
 		{
 			name: "NoReplication state",
 			context: ReplicationContext{
-				Self:                "self-cluster",
-				state:               NoReplication,
-				Others:              []string{"other-1"},
-				PrimaryCluster:      "primary",
-				currentLocalPrimary: "local-1",
-				targetLocalPrimary:  "target-1",
+				CNPGClusterName:            "self-cluster",
+				state:                      NoReplication,
+				OtherCNPGClusterNames:      []string{"other-1"},
+				PrimaryCNPGClusterName:     "primary",
+				currentLocalPrimary:        "local-1",
+				targetLocalPrimary:         "target-1",
 			},
 			contains: []string{"self-cluster", "NoReplication", "other-1"},
 		},
 		{
 			name: "Primary state",
 			context: ReplicationContext{
-				Self:   "primary-self",
-				state:  Primary,
-				Others: []string{"replica-1", "replica-2"},
+				CNPGClusterName:           "primary-self",
+				state:                     Primary,
+				OtherCNPGClusterNames:     []string{"replica-1", "replica-2"},
 			},
 			contains: []string{"primary-self", "Primary", "replica-1"},
 		},
 		{
 			name: "Replica state",
 			context: ReplicationContext{
-				Self:           "replica-self",
-				state:          Replica,
-				PrimaryCluster: "the-primary",
+				CNPGClusterName:          "replica-self",
+				state:                    Replica,
+				PrimaryCNPGClusterName:   "the-primary",
 			},
 			contains: []string{"replica-self", "Replica"},
 		},
@@ -349,27 +349,27 @@ func TestReplicationContext_CreateStandbyNamesList(t *testing.T) {
 		expectedFirst  string
 	}{
 		{
-			name: "creates list with others plus one placeholder",
+			name: "returns other clusters as-is",
 			context: ReplicationContext{
-				Others: []string{"cluster-a", "cluster-b"},
+				OtherCNPGClusterNames: []string{"cluster-a", "cluster-b"},
 			},
-			expectedLength: 3, // 2 others + 1 placeholder (currently just empty)
+			expectedLength: 2,
 			expectedFirst:  "cluster-a",
 		},
 		{
 			name: "single other cluster",
 			context: ReplicationContext{
-				Others: []string{"single-cluster"},
+				OtherCNPGClusterNames: []string{"single-cluster"},
 			},
-			expectedLength: 2, // 1 other + 1 placeholder
+			expectedLength: 1,
 			expectedFirst:  "single-cluster",
 		},
 		{
 			name: "empty others list",
 			context: ReplicationContext{
-				Others: []string{},
+				OtherCNPGClusterNames: []string{},
 			},
-			expectedLength: 1, // just placeholder
+			expectedLength: 0,
 		},
 	}
 
@@ -381,7 +381,7 @@ func TestReplicationContext_CreateStandbyNamesList(t *testing.T) {
 				t.Errorf("CreateStandbyNamesList() returned %d items, expected %d", len(result), tt.expectedLength)
 			}
 
-			if len(tt.context.Others) > 0 && result[0] != tt.expectedFirst {
+			if len(tt.context.OtherCNPGClusterNames) > 0 && result[0] != tt.expectedFirst {
 				t.Errorf("First item = %q, expected %q", result[0], tt.expectedFirst)
 			}
 		})
@@ -400,7 +400,7 @@ func TestReplicationContext_GenerateExternalClusterServices(t *testing.T) {
 		{
 			name: "generates services for others without fleet",
 			context: ReplicationContext{
-				Others: []string{"cluster-a", "cluster-b"},
+				OtherCNPGClusterNames: []string{"cluster-a", "cluster-b"},
 			},
 			docdbName:     "mydb",
 			namespace:     "default",
@@ -410,8 +410,8 @@ func TestReplicationContext_GenerateExternalClusterServices(t *testing.T) {
 		{
 			name: "generates services for others with fleet enabled",
 			context: ReplicationContext{
-				Others: []string{"cluster-a", "cluster-b"},
-				Self:   "self-cluster",
+				OtherCNPGClusterNames: []string{"cluster-a", "cluster-b"},
+				CNPGClusterName:        "self-cluster",
 			},
 			docdbName:     "mydb",
 			namespace:     "production",
@@ -421,7 +421,7 @@ func TestReplicationContext_GenerateExternalClusterServices(t *testing.T) {
 		{
 			name: "empty others list",
 			context: ReplicationContext{
-				Others: []string{},
+				OtherCNPGClusterNames: []string{},
 			},
 			docdbName:     "mydb",
 			namespace:     "default",
@@ -461,8 +461,8 @@ func TestReplicationContext_GenerateIncomingServiceNames(t *testing.T) {
 		{
 			name: "generates incoming service names",
 			context: ReplicationContext{
-				Others: []string{"cluster-a", "cluster-b"},
-				Self:   "self-cluster",
+				OtherCNPGClusterNames: []string{"cluster-a", "cluster-b"},
+				CNPGClusterName:        "self-cluster",
 			},
 			docdbName:     "mydb",
 			resourceGroup: "rg1",
@@ -471,8 +471,8 @@ func TestReplicationContext_GenerateIncomingServiceNames(t *testing.T) {
 		{
 			name: "empty others list",
 			context: ReplicationContext{
-				Others: []string{},
-				Self:   "self-cluster",
+				OtherCNPGClusterNames: []string{},
+				CNPGClusterName:        "self-cluster",
 			},
 			docdbName:     "mydb",
 			resourceGroup: "rg1",
@@ -508,8 +508,8 @@ func TestReplicationContext_GenerateOutgoingServiceNames(t *testing.T) {
 		{
 			name: "generates outgoing service names",
 			context: ReplicationContext{
-				Others: []string{"cluster-a", "cluster-b"},
-				Self:   "self-cluster",
+				OtherCNPGClusterNames: []string{"cluster-a", "cluster-b"},
+				CNPGClusterName:        "self-cluster",
 			},
 			docdbName:     "mydb",
 			resourceGroup: "rg1",
@@ -518,8 +518,8 @@ func TestReplicationContext_GenerateOutgoingServiceNames(t *testing.T) {
 		{
 			name: "empty others list",
 			context: ReplicationContext{
-				Others: []string{},
-				Self:   "self-cluster",
+				OtherCNPGClusterNames: []string{},
+				CNPGClusterName:        "self-cluster",
 			},
 			docdbName:     "mydb",
 			resourceGroup: "rg1",
