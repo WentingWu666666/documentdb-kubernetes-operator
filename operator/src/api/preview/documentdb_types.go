@@ -283,6 +283,12 @@ type DocumentDBStatus struct {
 	// DocumentDBVersion is the currently installed version of the DocumentDB extension.
 	DocumentDBVersion string `json:"documentDBVersion,omitempty"`
 
+	// DocumentDBImage is the extension image URI currently applied to the CNPG cluster.
+	DocumentDBImage string `json:"documentDBImage,omitempty"`
+
+	// GatewayImage is the gateway sidecar image URI currently applied to the CNPG cluster.
+	GatewayImage string `json:"gatewayImage,omitempty"`
+
 	// TLS reports gateway TLS provisioning status (Phase 1).
 	TLS *TLSStatus `json:"tls,omitempty"`
 }

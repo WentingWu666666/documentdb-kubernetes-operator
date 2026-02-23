@@ -323,11 +323,11 @@ func (r *DocumentDBReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 
-	// Check if documentdb extension needs to be upgraded (image update + ALTER EXTENSION)
+	// Check if documentdb images need to be upgraded (extension + gateway image update, ALTER EXTENSION)
 	// This only applies when using separate images via ImageVolume (K8s >= 1.35)
 	if r.ImageVolumeSupported {
-		if err := r.upgradeDocumentDBExtensionIfNeeded(ctx, currentCnpgCluster, desiredCnpgCluster, documentdb); err != nil {
-			logger.Error(err, "Failed to upgrade DocumentDB extension")
+		if err := r.upgradeDocumentDBIfNeeded(ctx, currentCnpgCluster, desiredCnpgCluster, documentdb); err != nil {
+			logger.Error(err, "Failed to upgrade DocumentDB images")
 			return ctrl.Result{RequeueAfter: RequeueAfterShort}, nil
 		}
 	}
@@ -809,11 +809,12 @@ func parseExtensionVersionsFromOutput(output string) (defaultVersion, installedV
 	return defaultVersion, installedVersion, true
 }
 
-// upgradeDocumentDBExtensionIfNeeded handles the complete DocumentDB extension upgrade process:
-// 1. Updates the extension image in CNPG cluster spec if needed (triggers rolling restart)
-// 2. Runs ALTER EXTENSION documentdb UPDATE if the installed version differs from default
-// 3. Updates the DocumentDB status with the new extension version
-func (r *DocumentDBReconciler) upgradeDocumentDBExtensionIfNeeded(ctx context.Context, currentCluster, desiredCluster *cnpgv1.Cluster, documentdb *dbpreview.DocumentDB) error {
+// upgradeDocumentDBIfNeeded handles the complete DocumentDB image upgrade process:
+// 1. Checks if extension image and/or gateway image need updating (builds a single JSON Patch)
+// 2. If images changed, applies the patch atomically (triggers one CNPG rolling restart) and returns
+// 3. After rolling restart completes, runs ALTER EXTENSION documentdb UPDATE if needed
+// 4. Updates the DocumentDB status with the new extension version
+func (r *DocumentDBReconciler) upgradeDocumentDBIfNeeded(ctx context.Context, currentCluster, desiredCluster *cnpgv1.Cluster, documentdb *dbpreview.DocumentDB) error {
 	logger := log.FromContext(ctx)
 
 	// Refetch documentdb to avoid potential race conditions with status updates
@@ -821,26 +822,50 @@ func (r *DocumentDBReconciler) upgradeDocumentDBExtensionIfNeeded(ctx context.Co
 		return fmt.Errorf("failed to refetch DocumentDB resource: %w", err)
 	}
 
-	// Step 1: Check if extension image needs to be updated in CNPG cluster spec
-	imageUpdated, err := r.updateExtensionImageIfNeeded(ctx, currentCluster, desiredCluster)
+	// Step 1: Build patch ops for extension and/or gateway image changes
+	patchOps, extensionUpdated, gatewayUpdated, err := buildImagePatchOps(currentCluster, desiredCluster)
 	if err != nil {
-		return fmt.Errorf("failed to update extension image: %w", err)
+		return fmt.Errorf("failed to build image patch operations: %w", err)
 	}
 
-	// If image was updated, CNPG will trigger a rolling restart.
-	// Wait for pod to become healthy before running ALTER EXTENSION.
-	if imageUpdated {
-		logger.Info("Extension image updated, waiting for pod to become healthy before running ALTER EXTENSION")
+	// Step 2: Apply patch if any images need updating
+	if len(patchOps) > 0 {
+		patchBytes, err := json.Marshal(patchOps)
+		if err != nil {
+			return fmt.Errorf("failed to marshal image patch: %w", err)
+		}
+
+		if err := r.Client.Patch(ctx, currentCluster, client.RawPatch(types.JSONPatchType, patchBytes)); err != nil {
+			return fmt.Errorf("failed to patch CNPG cluster with new images: %w", err)
+		}
+
+		logger.Info("Updated DocumentDB images in CNPG cluster, waiting for rolling restart",
+			"extensionUpdated", extensionUpdated,
+			"gatewayUpdated", gatewayUpdated,
+			"clusterName", currentCluster.Name)
+
+		// Update image status fields to reflect what was just applied
+		if err := r.updateImageStatus(ctx, documentdb, desiredCluster); err != nil {
+			logger.Error(err, "Failed to update image status after patching CNPG cluster")
+		}
+
+		// CNPG will trigger a rolling restart. Wait for pods to become healthy
+		// before running ALTER EXTENSION.
 		return nil
 	}
 
-	// Step 2: Check if primary pod is healthy before running ALTER EXTENSION
+	// Step 2b: Images already match — update status fields if stale
+	if err := r.updateImageStatus(ctx, documentdb, currentCluster); err != nil {
+		logger.Error(err, "Failed to update image status")
+	}
+
+	// Step 3: Check if primary pod is healthy before running ALTER EXTENSION
 	if !slices.Contains(currentCluster.Status.InstancesStatus[cnpgv1.PodHealthy], currentCluster.Status.CurrentPrimary) {
 		logger.Info("Current primary pod is not healthy; skipping DocumentDB extension upgrade")
 		return nil
 	}
 
-	// Step 3: Check if ALTER EXTENSION UPDATE is needed
+	// Step 4: Check if ALTER EXTENSION UPDATE is needed
 	checkVersionSQL := "SELECT default_version, installed_version FROM pg_available_extensions WHERE name = 'documentdb'"
 	output, err := r.executeSQLCommand(ctx, currentCluster, checkVersionSQL)
 	if err != nil {
@@ -858,7 +883,7 @@ func (r *DocumentDBReconciler) upgradeDocumentDBExtensionIfNeeded(ctx context.Co
 		return nil
 	}
 
-	// Step 4: Update DocumentDB version in status (even if no upgrade needed)
+	// Step 5: Update DocumentDB version in status (even if no upgrade needed)
 	if documentdb.Status.DocumentDBVersion != installedVersion {
 		documentdb.Status.DocumentDBVersion = installedVersion
 		if err := r.Status().Update(ctx, documentdb); err != nil {
@@ -873,7 +898,30 @@ func (r *DocumentDBReconciler) upgradeDocumentDBExtensionIfNeeded(ctx context.Co
 		return nil
 	}
 
-	// Step 5: Run ALTER EXTENSION to upgrade
+	// Step 5b: Rollback detection — check if the new binary is older than the installed schema
+	cmp, err := util.CompareExtensionVersions(defaultVersion, installedVersion)
+	if err != nil {
+		logger.Error(err, "Failed to compare extension versions, skipping ALTER EXTENSION as a safety measure",
+			"defaultVersion", defaultVersion,
+			"installedVersion", installedVersion)
+		return nil
+	}
+
+	if cmp < 0 {
+		// Rollback detected: the binary (defaultVersion) is older than the installed schema (installedVersion).
+		// ALTER EXTENSION UPDATE would attempt an unsupported downgrade. Skip it and warn the user.
+		msg := fmt.Sprintf(
+			"Extension rollback detected: binary offers version %s but schema is at %s. "+
+				"ALTER EXTENSION UPDATE skipped — DocumentDB does not provide downgrade scripts. "+
+				"The cluster will run with the older binary against the newer schema, which may cause issues. "+
+				"To resolve, update the extension image to a version that matches or exceeds %s.",
+			defaultVersion, installedVersion, installedVersion)
+		logger.Info(msg)
+		r.Recorder.Event(documentdb, corev1.EventTypeWarning, "ExtensionRollback", msg)
+		return nil
+	}
+
+	// Step 6: Run ALTER EXTENSION to upgrade (cmp > 0: defaultVersion > installedVersion)
 	logger.Info("Upgrading DocumentDB extension",
 		"fromVersion", installedVersion,
 		"toVersion", defaultVersion)
@@ -887,7 +935,7 @@ func (r *DocumentDBReconciler) upgradeDocumentDBExtensionIfNeeded(ctx context.Co
 		"fromVersion", installedVersion,
 		"toVersion", defaultVersion)
 
-	// Step 6: Update DocumentDB version in status after upgrade
+	// Step 7: Update DocumentDB version in status after upgrade
 	documentdb.Status.DocumentDBVersion = defaultVersion
 	if err := r.Status().Update(ctx, documentdb); err != nil {
 		logger.Error(err, "Failed to update DocumentDB status after extension upgrade")
@@ -897,21 +945,29 @@ func (r *DocumentDBReconciler) upgradeDocumentDBExtensionIfNeeded(ctx context.Co
 	return nil
 }
 
-// updateExtensionImageIfNeeded checks if the CNPG cluster's extension image differs from the desired one
-// and updates it using JSON patch if needed. Returns true if the image was updated.
-func (r *DocumentDBReconciler) updateExtensionImageIfNeeded(ctx context.Context, currentCluster, desiredCluster *cnpgv1.Cluster) (bool, error) {
-	logger := log.FromContext(ctx)
+// buildImagePatchOps compares the current and desired CNPG cluster specs and returns
+// JSON Patch operations for any image differences (extension image and/or gateway image).
+// This is a pure function with no API calls. Returns:
+//   - patchOps: 0–2 JSON Patch replace operations
+//   - extensionUpdated: true if extension image differs
+//   - gatewayUpdated: true if gateway image differs
+//   - err: non-nil if the documentdb extension is not found in the current cluster
+func buildImagePatchOps(currentCluster, desiredCluster *cnpgv1.Cluster) ([]util.JSONPatch, bool, bool, error) {
+	var patchOps []util.JSONPatch
+	extensionUpdated := false
+	gatewayUpdated := false
 
-	// Get current documentdb extension image
-	var currentImage string
-	for _, ext := range currentCluster.Spec.PostgresConfiguration.Extensions {
+	// --- Extension image comparison ---
+	currentExtIndex := -1
+	var currentExtImage string
+	for i, ext := range currentCluster.Spec.PostgresConfiguration.Extensions {
 		if ext.Name == "documentdb" {
-			currentImage = ext.ImageVolumeSource.Reference
+			currentExtIndex = i
+			currentExtImage = ext.ImageVolumeSource.Reference
 			break
 		}
 	}
 
-	// Get desired documentdb extension image
 	var desiredExtImage string
 	for _, ext := range desiredCluster.Spec.PostgresConfiguration.Extensions {
 		if ext.Name == "documentdb" {
@@ -920,47 +976,81 @@ func (r *DocumentDBReconciler) updateExtensionImageIfNeeded(ctx context.Context,
 		}
 	}
 
-	// If images are the same, no update needed
-	if currentImage == desiredExtImage {
-		return false, nil
+	if currentExtImage != desiredExtImage {
+		if currentExtIndex == -1 {
+			return nil, false, false, fmt.Errorf("documentdb extension not found in current CNPG cluster spec")
+		}
+		patchOps = append(patchOps, util.JSONPatch{
+			Op:    util.JSON_PATCH_OP_REPLACE,
+			Path:  fmt.Sprintf(util.JSON_PATCH_PATH_EXTENSION_IMAGE_FMT, currentExtIndex),
+			Value: desiredExtImage,
+		})
+		extensionUpdated = true
 	}
 
-	logger.Info("Updating DocumentDB extension image in CNPG cluster",
-		"currentImage", currentImage,
-		"desiredImage", desiredExtImage,
-		"clusterName", currentCluster.Name)
+	// --- Gateway image comparison ---
+	// Find the target plugin name from the desired cluster
+	if len(desiredCluster.Spec.Plugins) > 0 {
+		desiredPluginName := desiredCluster.Spec.Plugins[0].Name
+		desiredGatewayImage := ""
+		if desiredCluster.Spec.Plugins[0].Parameters != nil {
+			desiredGatewayImage = desiredCluster.Spec.Plugins[0].Parameters["gatewayImage"]
+		}
 
-	// Find the index of the documentdb extension
-	extIndex := -1
-	for i, ext := range currentCluster.Spec.PostgresConfiguration.Extensions {
+		// Only check gateway if there's actually a desired gateway image
+		if desiredGatewayImage != "" {
+			for i, plugin := range currentCluster.Spec.Plugins {
+				if plugin.Name == desiredPluginName {
+					currentGatewayImage := ""
+					if plugin.Parameters != nil {
+						currentGatewayImage = plugin.Parameters["gatewayImage"]
+					}
+
+					if currentGatewayImage != desiredGatewayImage {
+						patchOps = append(patchOps, util.JSONPatch{
+							Op:    util.JSON_PATCH_OP_REPLACE,
+							Path:  fmt.Sprintf(util.JSON_PATCH_PATH_PLUGIN_GATEWAY_IMAGE_FMT, i),
+							Value: desiredGatewayImage,
+						})
+						gatewayUpdated = true
+					}
+					break
+				}
+			}
+		}
+	}
+
+	return patchOps, extensionUpdated, gatewayUpdated, nil
+}
+
+// updateImageStatus reads the current extension and gateway images from the CNPG cluster
+// and persists them into the DocumentDB status fields. This is a no-op if both fields
+// are already up to date.
+func (r *DocumentDBReconciler) updateImageStatus(ctx context.Context, documentdb *dbpreview.DocumentDB, cluster *cnpgv1.Cluster) error {
+	// Read current extension image
+	currentExtImage := ""
+	for _, ext := range cluster.Spec.PostgresConfiguration.Extensions {
 		if ext.Name == "documentdb" {
-			extIndex = i
+			currentExtImage = ext.ImageVolumeSource.Reference
 			break
 		}
 	}
 
-	if extIndex == -1 {
-		return false, fmt.Errorf("documentdb extension not found in CNPG cluster spec")
+	// Read current gateway image
+	currentGwImage := ""
+	if len(cluster.Spec.Plugins) > 0 && cluster.Spec.Plugins[0].Parameters != nil {
+		currentGwImage = cluster.Spec.Plugins[0].Parameters["gatewayImage"]
 	}
 
-	// Use JSON patch to update the extension image
-	patch := []map[string]interface{}{
-		{
-			"op":    "replace",
-			"path":  fmt.Sprintf("/spec/postgresql/extensions/%d/image/reference", extIndex),
-			"value": desiredExtImage,
-		},
+	// Only update if something changed
+	if documentdb.Status.DocumentDBImage == currentExtImage && documentdb.Status.GatewayImage == currentGwImage {
+		return nil
 	}
 
-	patchBytes, err := json.Marshal(patch)
-	if err != nil {
-		return false, fmt.Errorf("failed to marshal patch: %w", err)
+	documentdb.Status.DocumentDBImage = currentExtImage
+	documentdb.Status.GatewayImage = currentGwImage
+	if err := r.Status().Update(ctx, documentdb); err != nil {
+		return fmt.Errorf("failed to update DocumentDB image status: %w", err)
 	}
-
-	if err := r.Client.Patch(ctx, currentCluster, client.RawPatch(types.JSONPatchType, patchBytes)); err != nil {
-		return false, fmt.Errorf("failed to patch CNPG cluster with new extension image: %w", err)
-	}
-
-	logger.Info("Successfully updated DocumentDB extension image in CNPG cluster")
-	return true, nil
+	return nil
 }

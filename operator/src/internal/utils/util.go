@@ -501,3 +501,63 @@ func GenerateServiceName(source, target, resourceGroup string) string {
 		return fmt.Sprintf("%s-%s", source[0:sourceLen], target[0:targetLen])
 	}
 }
+
+// CompareExtensionVersions compares two DocumentDB extension version strings.
+// Format: "Major.Minor-Patch" (e.g., "0.110-0").
+// Returns: -1 if v1 < v2, 0 if equal, +1 if v1 > v2.
+func CompareExtensionVersions(v1, v2 string) (int, error) {
+	p1, err := parseExtensionVersion(v1)
+	if err != nil {
+		return 0, fmt.Errorf("invalid version %q: %w", v1, err)
+	}
+	p2, err := parseExtensionVersion(v2)
+	if err != nil {
+		return 0, fmt.Errorf("invalid version %q: %w", v2, err)
+	}
+
+	// Compare major → minor → patch
+	for i := 0; i < 3; i++ {
+		if p1[i] < p2[i] {
+			return -1, nil
+		}
+		if p1[i] > p2[i] {
+			return 1, nil
+		}
+	}
+	return 0, nil
+}
+
+// parseExtensionVersion parses a "Major.Minor-Patch" string into [major, minor, patch].
+func parseExtensionVersion(v string) ([3]int, error) {
+	var result [3]int
+
+	// Split on "-" to get [majorMinor, patch]
+	dashParts := strings.SplitN(v, "-", 2)
+	if len(dashParts) != 2 {
+		return result, fmt.Errorf("expected format Major.Minor-Patch, missing '-'")
+	}
+
+	// Split majorMinor on "." to get [major, minor]
+	dotParts := strings.SplitN(dashParts[0], ".", 2)
+	if len(dotParts) != 2 {
+		return result, fmt.Errorf("expected format Major.Minor-Patch, missing '.'")
+	}
+
+	major, err := strconv.Atoi(dotParts[0])
+	if err != nil {
+		return result, fmt.Errorf("invalid major version %q: %w", dotParts[0], err)
+	}
+	minor, err := strconv.Atoi(dotParts[1])
+	if err != nil {
+		return result, fmt.Errorf("invalid minor version %q: %w", dotParts[1], err)
+	}
+	patch, err := strconv.Atoi(dashParts[1])
+	if err != nil {
+		return result, fmt.Errorf("invalid patch version %q: %w", dashParts[1], err)
+	}
+
+	result[0] = major
+	result[1] = minor
+	result[2] = patch
+	return result, nil
+}

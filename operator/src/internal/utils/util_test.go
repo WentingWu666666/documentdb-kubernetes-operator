@@ -849,3 +849,93 @@ func TestGetDocumentDBServiceDefinition_ServiceNameLength(t *testing.T) {
 		})
 	}
 }
+
+func TestCompareExtensionVersions(t *testing.T) {
+	tests := []struct {
+		name      string
+		v1        string
+		v2        string
+		expected  int
+		expectErr bool
+	}{
+		{
+			name:     "equal versions",
+			v1:       "0.110-0",
+			v2:       "0.110-0",
+			expected: 0,
+		},
+		{
+			name:     "v1 minor greater (upgrade)",
+			v1:       "0.110-0",
+			v2:       "0.109-0",
+			expected: 1,
+		},
+		{
+			name:     "v1 minor less (rollback)",
+			v1:       "0.109-0",
+			v2:       "0.110-0",
+			expected: -1,
+		},
+		{
+			name:     "v1 major greater",
+			v1:       "1.0-0",
+			v2:       "0.110-0",
+			expected: 1,
+		},
+		{
+			name:     "v1 patch greater",
+			v1:       "0.110-1",
+			v2:       "0.110-0",
+			expected: 1,
+		},
+		{
+			name:     "v1 patch less",
+			v1:       "0.110-0",
+			v2:       "0.110-1",
+			expected: -1,
+		},
+		{
+			name:      "invalid v1 missing dash",
+			v1:        "0.110.0",
+			v2:        "0.110-0",
+			expectErr: true,
+		},
+		{
+			name:      "invalid v2 missing dot",
+			v1:        "0.110-0",
+			v2:        "0110-0",
+			expectErr: true,
+		},
+		{
+			name:      "invalid v1 non-numeric",
+			v1:        "abc.110-0",
+			v2:        "0.110-0",
+			expectErr: true,
+		},
+		{
+			name:      "empty v1",
+			v1:        "",
+			v2:        "0.110-0",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := CompareExtensionVersions(tt.v1, tt.v2)
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("expected error but got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if result != tt.expected {
+				t.Errorf("CompareExtensionVersions(%q, %q) = %d, want %d", tt.v1, tt.v2, result, tt.expected)
+			}
+		})
+	}
+}

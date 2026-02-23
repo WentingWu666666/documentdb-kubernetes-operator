@@ -1354,9 +1354,17 @@ spec:
             properties:
               connectionString:
                 type: string
+              documentDBImage:
+                description: DocumentDBImage is the extension image URI currently
+                  applied to the CNPG cluster.
+                type: string
               documentDBVersion:
                 description: DocumentDBVersion is the currently installed version
                   of the DocumentDB extension.
+                type: string
+              gatewayImage:
+                description: GatewayImage is the gateway sidecar image URI currently
+                  applied to the CNPG cluster.
                 type: string
               localPrimary:
                 type: string
