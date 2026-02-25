@@ -69,8 +69,8 @@ jobs:
       CHART_VERSION: ${{ needs.build.outputs.chart_version || '0.1.0' }}
       DOCUMENTDB_IMAGE: ghcr.io/guanzhousongmicrosoft/documentdb-pg18:0.110.0
       DOCUMENTDB_OLD_IMAGE: ghcr.io/guanzhousongmicrosoft/documentdb-pg18:0.109.0
-      GATEWAY_IMAGE: ghcr.io/guanzhousongmicrosoft/documentdb/documentdb-local:pg16-0.110.0
-      GATEWAY_OLD_IMAGE: ghcr.io/microsoft/documentdb/documentdb-local:16
+      GATEWAY_IMAGE: ghcr.io/microsoft/documentdb/documentdb-local:16
+      GATEWAY_OLD_IMAGE: ghcr.io/microsoft/documentdb/documentdb-local:16 # TODO: update to actual old gateway image when available
 
     steps:
     - name: Checkout repository
@@ -229,7 +229,8 @@ jobs:
               HEALTHY_PODS=$(kubectl get cluster '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.instancesStatus.healthy}" 2>/dev/null | jq length 2>/dev/null || echo "0")
               if [[ "$HEALTHY_PODS" -ge "1" ]]; then
                 # Verify pods are actually running the new extension image
-                POD_IMAGES=$(kubectl get pods -n '$DB_NS' -l cnpg.io/cluster='$DB_NAME' -o jsonpath="{.items[*].spec.initContainers[*].image}" 2>/dev/null)
+                # With ImageVolume (K8s >= 1.35), the extension image is mounted as a volume, not an init container
+                POD_IMAGES=$(kubectl get pods -n '$DB_NS' -l cnpg.io/cluster='$DB_NAME' -o jsonpath="{.items[*].spec.volumes[*].image.reference}" 2>/dev/null)
                 if echo "$POD_IMAGES" | grep -q "'"$NEW_EXTENSION"'"; then
                   echo "✓ Cluster healthy with $HEALTHY_PODS pods running new images"
                   break
@@ -365,7 +366,8 @@ jobs:
             HEALTHY_PODS=$(kubectl get cluster '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.instancesStatus.healthy}" 2>/dev/null | jq length 2>/dev/null || echo "0")
             if [[ "$HEALTHY_PODS" -ge "1" ]]; then
               # Verify pods are running the rolled-back extension image
-              POD_IMAGES=$(kubectl get pods -n '$DB_NS' -l cnpg.io/cluster='$DB_NAME' -o jsonpath="{.items[*].spec.initContainers[*].image}" 2>/dev/null)
+              # With ImageVolume (K8s >= 1.35), the extension image is mounted as a volume, not an init container
+              POD_IMAGES=$(kubectl get pods -n '$DB_NS' -l cnpg.io/cluster='$DB_NAME' -o jsonpath="{.items[*].spec.volumes[*].image.reference}" 2>/dev/null)
               if echo "$POD_IMAGES" | grep -q "'"$OLD_EXTENSION"'"; then
                 echo "✓ Cluster healthy with $HEALTHY_PODS pods running rolled-back extension image"
                 break
