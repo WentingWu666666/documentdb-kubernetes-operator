@@ -503,6 +503,17 @@ func GenerateServiceName(source, target, resourceGroup string) string {
 	}
 }
 
+// ExtensionVersionToSemver converts a PostgreSQL extension version string from
+// the "Major.Minor-Patch" format (e.g., "0.110-0") returned by pg_available_extensions
+// to the standard dot-separated "Major.Minor.Patch" format (e.g., "0.110.0")
+// used in status.documentDBVersion and image tags.
+func ExtensionVersionToSemver(v string) string {
+	if idx := strings.LastIndex(v, "-"); idx >= 0 {
+		return v[:idx] + "." + v[idx+1:]
+	}
+	return v
+}
+
 // CompareExtensionVersions compares two DocumentDB extension version strings.
 // Format: "Major.Minor-Patch" (e.g., "0.110-0").
 // Returns: -1 if v1 < v2, 0 if equal, +1 if v1 > v2.

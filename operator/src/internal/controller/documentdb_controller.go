@@ -907,8 +907,10 @@ func (r *DocumentDBReconciler) upgradeDocumentDBIfNeeded(ctx context.Context, cu
 	}
 
 	// Step 5: Update DocumentDB version in status (even if no upgrade needed)
-	if documentdb.Status.DocumentDBVersion != installedVersion {
-		documentdb.Status.DocumentDBVersion = installedVersion
+	// Convert from pg_available_extensions format ("0.110-0") to semver ("0.110.0")
+	installedSemver := util.ExtensionVersionToSemver(installedVersion)
+	if documentdb.Status.DocumentDBVersion != installedSemver {
+		documentdb.Status.DocumentDBVersion = installedSemver
 		if err := r.Status().Update(ctx, documentdb); err != nil {
 			logger.Error(err, "Failed to update DocumentDB status with extension version")
 			return fmt.Errorf("failed to update DocumentDB status with extension version: %w", err)
@@ -959,7 +961,8 @@ func (r *DocumentDBReconciler) upgradeDocumentDBIfNeeded(ctx context.Context, cu
 		"toVersion", defaultVersion)
 
 	// Step 7: Update DocumentDB version in status after upgrade
-	documentdb.Status.DocumentDBVersion = defaultVersion
+	// Convert from pg_available_extensions format ("0.110-0") to semver ("0.110.0")
+	documentdb.Status.DocumentDBVersion = util.ExtensionVersionToSemver(defaultVersion)
 	if err := r.Status().Update(ctx, documentdb); err != nil {
 		logger.Error(err, "Failed to update DocumentDB status after extension upgrade")
 		return fmt.Errorf("failed to update DocumentDB status after extension upgrade: %w", err)

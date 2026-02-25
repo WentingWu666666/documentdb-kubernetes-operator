@@ -4,24 +4,23 @@
 package controller
 
 import (
-"context"
+	"context"
 
-cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-. "github.com/onsi/ginkgo/v2"
-. "github.com/onsi/gomega"
-corev1 "k8s.io/api/core/v1"
-"k8s.io/apimachinery/pkg/api/errors"
-"k8s.io/apimachinery/pkg/api/resource"
-metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-"k8s.io/apimachinery/pkg/runtime"
-"k8s.io/apimachinery/pkg/types"
-"k8s.io/apimachinery/pkg/version"
-fakediscovery "k8s.io/client-go/discovery/fake"
-kubefake "k8s.io/client-go/kubernetes/fake"
-"k8s.io/client-go/tools/record"
-"sigs.k8s.io/controller-runtime/pkg/client"
-"sigs.k8s.io/controller-runtime/pkg/client/fake"
-"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/version"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	kubefake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	dbpreview "github.com/documentdb/documentdb-operator/api/preview"
 	util "github.com/documentdb/documentdb-operator/internal/utils"
@@ -30,31 +29,31 @@ kubefake "k8s.io/client-go/kubernetes/fake"
 // parseExtensionVersions parses the output of pg_available_extensions query
 // Returns defaultVersion, installedVersion, and a boolean indicating if parsing was successful
 func parseExtensionVersions(output string) (defaultVersion, installedVersion string, ok bool) {
-return parseExtensionVersionsFromOutput(output)
+	return parseExtensionVersionsFromOutput(output)
 }
 
 var _ = Describe("DocumentDB Controller", func() {
-const (
-clusterName         = "test-cluster"
-clusterNamespace    = "default"
-documentDBName      = "test-documentdb"
-documentDBNamespace = "default"
-)
+	const (
+		clusterName         = "test-cluster"
+		clusterNamespace    = "default"
+		documentDBName      = "test-documentdb"
+		documentDBNamespace = "default"
+	)
 
-var (
-ctx      context.Context
-scheme   *runtime.Scheme
-recorder *record.FakeRecorder
-)
+	var (
+		ctx      context.Context
+		scheme   *runtime.Scheme
+		recorder *record.FakeRecorder
+	)
 
-BeforeEach(func() {
-ctx = context.Background()
-scheme = runtime.NewScheme()
-recorder = record.NewFakeRecorder(10)
-Expect(dbpreview.AddToScheme(scheme)).To(Succeed())
-Expect(cnpgv1.AddToScheme(scheme)).To(Succeed())
-Expect(corev1.AddToScheme(scheme)).To(Succeed())
-})
+	BeforeEach(func() {
+		ctx = context.Background()
+		scheme = runtime.NewScheme()
+		recorder = record.NewFakeRecorder(10)
+		Expect(dbpreview.AddToScheme(scheme)).To(Succeed())
+		Expect(cnpgv1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+	})
 
 	Describe("buildImagePatchOps", func() {
 		It("should return 0 ops when both extension and gateway images are the same", func() {
@@ -869,6 +868,496 @@ Expect(corev1.AddToScheme(scheme)).To(Succeed())
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
 			Expect(updatedDB.Status.DocumentDBImage).To(Equal("documentdb/documentdb:v2.0.0"))
 			Expect(updatedDB.Status.GatewayImage).To(Equal("documentdb/gateway:v2.0.0"))
+		})
+
+		It("should return error when DocumentDB resource cannot be refetched", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			desiredCluster := cluster.DeepCopy()
+
+			// DocumentDB resource does NOT exist in the fake client — refetch will fail
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "non-existent-documentdb",
+					Namespace: clusterNamespace,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to refetch DocumentDB resource"))
+		})
+
+		It("should return error when documentdb extension is missing from current cluster", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "other-extension",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "other/image:v1.0.0",
+								},
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			desiredCluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v2.0.0",
+								},
+							},
+						},
+					},
+				},
+			}
+
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to build image patch operations"))
+		})
+
+		It("should add restart annotation for gateway-only update", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+					Plugins: []cnpgv1.PluginConfiguration{
+						{
+							Name: "cnpg-i-sidecar-injector.documentdb.io",
+							Parameters: map[string]string{
+								"gatewayImage": "gateway:v1.0.0",
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			desiredCluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0", // Same extension image
+								},
+							},
+						},
+					},
+					Plugins: []cnpgv1.PluginConfiguration{
+						{
+							Name: "cnpg-i-sidecar-injector.documentdb.io",
+							Parameters: map[string]string{
+								"gatewayImage": "gateway:v2.0.0", // Only gateway differs
+							},
+						},
+					},
+				},
+			}
+
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: recorder,
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify gateway image was updated
+			result := &cnpgv1.Cluster{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: clusterNamespace}, result)).To(Succeed())
+
+			// Verify restart annotation was added for gateway-only update
+			Expect(result.Annotations).To(HaveKey("kubectl.kubernetes.io/restartedAt"))
+
+			// Verify gateway image status was updated
+			updatedDB := &dbpreview.DocumentDB{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
+			Expect(updatedDB.Status.GatewayImage).To(Equal("gateway:v2.0.0"))
+		})
+
+		It("should not add restart annotation when extension image also changes", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+					Plugins: []cnpgv1.PluginConfiguration{
+						{
+							Name: "cnpg-i-sidecar-injector.documentdb.io",
+							Parameters: map[string]string{
+								"gatewayImage": "gateway:v1.0.0",
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			desiredCluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v2.0.0", // Both differ
+								},
+							},
+						},
+					},
+					Plugins: []cnpgv1.PluginConfiguration{
+						{
+							Name: "cnpg-i-sidecar-injector.documentdb.io",
+							Parameters: map[string]string{
+								"gatewayImage": "gateway:v2.0.0", // Both differ
+							},
+						},
+					},
+				},
+			}
+
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: recorder,
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify images were updated
+			result := &cnpgv1.Cluster{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: clusterNamespace}, result)).To(Succeed())
+			Expect(result.Spec.PostgresConfiguration.Extensions[0].ImageVolumeSource.Reference).To(Equal("documentdb/documentdb:v2.0.0"))
+
+			// Restart annotation should NOT be added when extension also changes
+			// (CNPG handles restart via ImageVolume PodSpec divergence)
+			Expect(result.Annotations).ToNot(HaveKey("kubectl.kubernetes.io/restartedAt"))
+		})
+
+		It("should return nil when images match and primary is not healthy", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+					Plugins: []cnpgv1.PluginConfiguration{
+						{
+							Name: "cnpg-i-sidecar-injector.documentdb.io",
+							Parameters: map[string]string{
+								"gatewayImage": "gateway:v1.0.0",
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-2"}, // Primary NOT healthy
+					},
+				},
+			}
+
+			desiredCluster := cluster.DeepCopy()
+
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Image status should still be updated even though primary isn't healthy
+			updatedDB := &dbpreview.DocumentDB{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
+			Expect(updatedDB.Status.DocumentDBImage).To(Equal("documentdb/documentdb:v1.0.0"))
+			Expect(updatedDB.Status.GatewayImage).To(Equal("gateway:v1.0.0"))
+		})
+
+		It("should update stale image status when images already match", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v2.0.0",
+								},
+							},
+						},
+					},
+					Plugins: []cnpgv1.PluginConfiguration{
+						{
+							Name: "cnpg-i-sidecar-injector.documentdb.io",
+							Parameters: map[string]string{
+								"gatewayImage": "gateway:v2.0.0",
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary:  "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{},
+				},
+			}
+
+			desiredCluster := cluster.DeepCopy()
+
+			// Status has stale/old image values
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+				Status: dbpreview.DocumentDBStatus{
+					DocumentDBImage: "documentdb/documentdb:v1.0.0",
+					GatewayImage:    "gateway:v1.0.0",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify stale status was corrected
+			updatedDB := &dbpreview.DocumentDB{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
+			Expect(updatedDB.Status.DocumentDBImage).To(Equal("documentdb/documentdb:v2.0.0"))
+			Expect(updatedDB.Status.GatewayImage).To(Equal("gateway:v2.0.0"))
+		})
+
+		It("should not patch cluster when images already match and no instances exist", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary:  "",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{},
+				},
+			}
+
+			desiredCluster := cluster.DeepCopy()
+
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+				Status: dbpreview.DocumentDBStatus{
+					DocumentDBImage: "documentdb/documentdb:v1.0.0",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Cluster should remain unchanged (no patch applied)
+			result := &cnpgv1.Cluster{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: clusterNamespace}, result)).To(Succeed())
+			Expect(result.Spec.PostgresConfiguration.Extensions[0].ImageVolumeSource.Reference).To(Equal("documentdb/documentdb:v1.0.0"))
 		})
 	})
 

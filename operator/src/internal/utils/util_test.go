@@ -850,13 +850,142 @@ func TestGetDocumentDBServiceDefinition_ServiceNameLength(t *testing.T) {
 	}
 }
 
-func TestCompareExtensionVersions(t *testing.T) {
+func TestParseExtensionVersion(t *testing.T) {
 	tests := []struct {
 		name      string
-		v1        string
-		v2        string
-		expected  int
+		input     string
+		expected  [3]int
 		expectErr bool
+		errSubstr string
+	}{
+		{
+			name:     "valid standard version",
+			input:    "0.110-0",
+			expected: [3]int{0, 110, 0},
+		},
+		{
+			name:     "valid version with non-zero patch",
+			input:    "0.110-1",
+			expected: [3]int{0, 110, 1},
+		},
+		{
+			name:     "valid version with major > 0",
+			input:    "1.0-0",
+			expected: [3]int{1, 0, 0},
+		},
+		{
+			name:     "valid version all non-zero",
+			input:    "2.15-3",
+			expected: [3]int{2, 15, 3},
+		},
+		{
+			name:     "valid version with large numbers",
+			input:    "100.999-50",
+			expected: [3]int{100, 999, 50},
+		},
+		{
+			name:      "missing dash separator",
+			input:     "0.110.0",
+			expectErr: true,
+			errSubstr: "missing '-'",
+		},
+		{
+			name:      "missing dot separator",
+			input:     "0110-0",
+			expectErr: true,
+			errSubstr: "missing '.'",
+		},
+		{
+			name:      "non-numeric major",
+			input:     "abc.110-0",
+			expectErr: true,
+			errSubstr: "invalid major version",
+		},
+		{
+			name:      "non-numeric minor",
+			input:     "0.abc-0",
+			expectErr: true,
+			errSubstr: "invalid minor version",
+		},
+		{
+			name:      "non-numeric patch",
+			input:     "0.110-abc",
+			expectErr: true,
+			errSubstr: "invalid patch version",
+		},
+		{
+			name:      "empty string",
+			input:     "",
+			expectErr: true,
+			errSubstr: "missing '-'",
+		},
+		{
+			name:      "only dash",
+			input:     "-",
+			expectErr: true,
+			errSubstr: "missing '.'",
+		},
+		{
+			name:      "only dot",
+			input:     ".",
+			expectErr: true,
+			errSubstr: "missing '-'",
+		},
+		{
+			name:      "extra dash parts are ignored by SplitN",
+			input:     "0.110-0-1",
+			expectErr: true,
+			errSubstr: "invalid patch version",
+		},
+		{
+			name:     "extra dot in major.minor parsed correctly",
+			input:    "0.1.2-3",
+			expected: [3]int{0, 0, 0},
+			// "1.2" is not a valid int, so this should error
+			expectErr: true,
+			errSubstr: "invalid minor version",
+		},
+		{
+			name:      "negative major version",
+			input:     "-1.110-0",
+			expectErr: true,
+			errSubstr: "missing '.'",
+		},
+		{
+			name:     "zero version",
+			input:    "0.0-0",
+			expected: [3]int{0, 0, 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseExtensionVersion(tt.input)
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("parseExtensionVersion(%q) expected error containing %q, but got nil", tt.input, tt.errSubstr)
+				} else if !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("parseExtensionVersion(%q) error = %q, expected to contain %q", tt.input, err.Error(), tt.errSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("parseExtensionVersion(%q) unexpected error: %v", tt.input, err)
+				return
+			}
+			if result != tt.expected {
+				t.Errorf("parseExtensionVersion(%q) = %v, want %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCompareExtensionVersions(t *testing.T) {
+	tests := []struct {
+		name     string
+		v1       string
+		v2       string
+		expected int
 	}{
 		{
 			name:     "equal versions",
@@ -894,30 +1023,6 @@ func TestCompareExtensionVersions(t *testing.T) {
 			v2:       "0.110-1",
 			expected: -1,
 		},
-		{
-			name:      "invalid v1 missing dash",
-			v1:        "0.110.0",
-			v2:        "0.110-0",
-			expectErr: true,
-		},
-		{
-			name:      "invalid v2 missing dot",
-			v1:        "0.110-0",
-			v2:        "0110-0",
-			expectErr: true,
-		},
-		{
-			name:      "invalid v1 non-numeric",
-			v1:        "abc.110-0",
-			v2:        "0.110-0",
-			expectErr: true,
-		},
-		{
-			name:      "empty v1",
-			v1:        "",
-			v2:        "0.110-0",
-			expectErr: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -935,6 +1040,32 @@ func TestCompareExtensionVersions(t *testing.T) {
 			}
 			if result != tt.expected {
 				t.Errorf("CompareExtensionVersions(%q, %q) = %d, want %d", tt.v1, tt.v2, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtensionVersionToSemver(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{name: "standard version", input: "0.110-0", expected: "0.110.0"},
+		{name: "non-zero patch", input: "0.110-1", expected: "0.110.1"},
+		{name: "major version", input: "1.0-0", expected: "1.0.0"},
+		{name: "all non-zero", input: "2.15-3", expected: "2.15.3"},
+		{name: "large numbers", input: "100.999-50", expected: "100.999.50"},
+		{name: "already semver (no hyphen)", input: "0.110.0", expected: "0.110.0"},
+		{name: "empty string", input: "", expected: ""},
+		{name: "no hyphen single number", input: "110", expected: "110"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ExtensionVersionToSemver(tt.input)
+			if result != tt.expected {
+				t.Errorf("ExtensionVersionToSemver(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}

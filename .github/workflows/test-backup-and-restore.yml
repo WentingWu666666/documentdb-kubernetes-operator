@@ -123,11 +123,9 @@ jobs:
         db-port: ${{ env.DB_PORT }}
         image-tag: ${{ env.IMAGE_TAG }}
         chart-version: ${{ env.CHART_VERSION }}
-        documentdb-image: ${{ env.DOCUMENTDB_IMAGE }}
         use-external-images: ${{ github.event_name != 'pull_request' && inputs.image_tag != '' && inputs.image_tag != null }}
         github-token: ${{ secrets.GITHUB_TOKEN }}
         repository-owner: ${{ github.repository_owner }}
-        kubernetes-version: 'v1.35.0'
     - name: Setup port forwarding for comprehensive tests
       uses: ./.github/actions/setup-port-forwarding
       with:

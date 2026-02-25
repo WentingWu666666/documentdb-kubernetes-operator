@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [ main, develop ]
   schedule:
-    # Run daily at 2 AM UTC
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
@@ -68,7 +67,6 @@ jobs:
     env:
       IMAGE_TAG: ${{ (github.event_name == 'pull_request' || inputs.image_tag == '' || inputs.image_tag == null) && needs.build.outputs.image_tag || inputs.image_tag }}
       CHART_VERSION: ${{ needs.build.outputs.chart_version || '0.1.0' }}
-      KUBERNETES_VERSION: v1.35.0
       DOCUMENTDB_IMAGE: ghcr.io/guanzhousongmicrosoft/documentdb-pg18:0.110.0
       DOCUMENTDB_OLD_IMAGE: ghcr.io/guanzhousongmicrosoft/documentdb-pg18:0.109.0
       GATEWAY_IMAGE: ghcr.io/guanzhousongmicrosoft/documentdb/documentdb-local:pg16-0.110.0
@@ -97,7 +95,6 @@ jobs:
           echo "- **Image Tag**: \`${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
         fi
         echo "- **Architecture**: \`${{ matrix.architecture }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Kubernetes Version**: \`${{ env.KUBERNETES_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **Old Extension Image**: \`${{ env.DOCUMENTDB_OLD_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **New Extension Image**: \`${{ env.DOCUMENTDB_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **Old Gateway Image**: \`${{ env.GATEWAY_OLD_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
@@ -126,52 +123,98 @@ jobs:
         use-external-images: ${{ github.event_name != 'pull_request' && inputs.image_tag != '' && inputs.image_tag != null }}
         github-token: ${{ secrets.GITHUB_TOKEN }}
         repository-owner: ${{ github.repository_owner }}
-        kubernetes-version: ${{ env.KUBERNETES_VERSION }}
+
+    - name: Setup port forwarding for data seeding
+      uses: ./.github/actions/setup-port-forwarding
+      with:
+        namespace: ${{ env.DB_NS }}
+        cluster-name: ${{ env.DB_NAME }}
+        port: ${{ env.DB_PORT }}
+        architecture: ${{ matrix.architecture }}
+        test-type: 'comprehensive'
+
+    - name: Seed test data before upgrade
+      run: |
+        echo "=== Data Persistence: Writing seed data before upgrade ==="
+        mongosh 127.0.0.1:$DB_PORT \
+          -u $DB_USERNAME \
+          -p $DB_PASSWORD \
+          --authenticationMechanism SCRAM-SHA-256 \
+          --tls \
+          --tlsAllowInvalidCertificates \
+          --eval '
+            db = db.getSiblingDB("upgrade_test_db");
+            db.test_collection.insertOne({ _id: "upgrade_marker", step: "pre-upgrade", timestamp: new Date().toISOString() });
+            db.test_collection.insertOne({ _id: "persistence_check", data: "this_must_survive_rollback", count: 42 });
+            var count = db.test_collection.countDocuments();
+            print("✓ Seed data written: " + count + " documents");
+            assert(count === 2, "Expected 2 documents but found " + count);
+          '
+        echo "✓ Seed data written successfully on old version"
+
+    - name: Cleanup port forwarding after data seeding
+      if: always()
+      run: |
+        if [ -f /tmp/pf_pid ]; then
+          PF_PID=$(cat /tmp/pf_pid)
+          kill $PF_PID 2>/dev/null || true
+          rm -f /tmp/pf_pid
+        fi
+        rm -f /tmp/pf_output.log
 
     - name: "Step 1: Upgrade Both Extension and Gateway Images"
       run: |
         echo "=== Step 1: Upgrade Both Extension and Gateway Images ==="
         echo "Testing simultaneous extension + gateway upgrade on ${{ matrix.architecture }}..."
         
-        OLD_EXT="${{ env.DOCUMENTDB_OLD_IMAGE }}"
-        NEW_EXT="${{ env.DOCUMENTDB_IMAGE }}"
-        OLD_GW="${{ env.GATEWAY_OLD_IMAGE }}"
-        NEW_GW="${{ env.GATEWAY_IMAGE }}"
+        OLD_EXTENSION="${{ env.DOCUMENTDB_OLD_IMAGE }}"
+        NEW_EXTENSION="${{ env.DOCUMENTDB_IMAGE }}"
+        OLD_GATEWAY="${{ env.GATEWAY_OLD_IMAGE }}"
+        NEW_GATEWAY="${{ env.GATEWAY_IMAGE }}"
         
         # Verify baseline: cluster deployed with old images
-        CURRENT_EXT=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.spec.documentDBImage}')
-        echo "Current extension image: $CURRENT_EXT"
-        if [[ "$CURRENT_EXT" != "$OLD_EXT" ]]; then
-          echo "❌ Expected old extension image $OLD_EXT but found $CURRENT_EXT"
+        CURRENT_EXTENSION=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.spec.documentDBImage}')
+        echo "Current extension image: $CURRENT_EXTENSION"
+        if [[ "$CURRENT_EXTENSION" != "$OLD_EXTENSION" ]]; then
+          echo "❌ Expected old extension image $OLD_EXTENSION but found $CURRENT_EXTENSION"
           exit 1
         fi
         
-        CURRENT_GW=$(kubectl get cluster $DB_NAME -n $DB_NS -o jsonpath='{.spec.plugins[0].parameters.gatewayImage}')
-        echo "Current gateway image: $CURRENT_GW"
-        if [[ "$CURRENT_GW" != "$OLD_GW" ]]; then
-          echo "❌ Expected old gateway image $OLD_GW but found $CURRENT_GW"
+        CURRENT_GATEWAY=$(kubectl get cluster $DB_NAME -n $DB_NS -o jsonpath='{.spec.plugins[0].parameters.gatewayImage}')
+        echo "Current gateway image: $CURRENT_GATEWAY"
+        if [[ "$CURRENT_GATEWAY" != "$OLD_GATEWAY" ]]; then
+          echo "❌ Expected old gateway image $OLD_GATEWAY but found $CURRENT_GATEWAY"
           exit 1
         fi
         echo "✓ Cluster deployed with old images"
         
-        # Record version before upgrade
+        # Record and verify version before upgrade
         VERSION_BEFORE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBVersion}')
         echo "DocumentDB version before upgrade: $VERSION_BEFORE"
+
+        # The image tag (e.g., "0.110.0") now matches status.documentDBVersion directly
+        OLD_VERSION_TAG="${OLD_EXTENSION##*:}"
+        EXPECTED_VERSION_BEFORE="$OLD_VERSION_TAG"
+        if [[ -z "$VERSION_BEFORE" ]]; then
+          echo "❌ status.documentDBVersion is empty before upgrade"
+          exit 1
+        fi
+        if [[ "$VERSION_BEFORE" != "$EXPECTED_VERSION_BEFORE" ]]; then
+          echo "❌ Expected version $EXPECTED_VERSION_BEFORE before upgrade but found $VERSION_BEFORE"
+          exit 1
+        fi
+        echo "✓ DocumentDB version matches expected $EXPECTED_VERSION_BEFORE before upgrade"
         
         # Patch both images simultaneously
         echo ""
         echo "Upgrading both images..."
-        echo "  Extension: $OLD_EXT → $NEW_EXT"
-        echo "  Gateway:   $OLD_GW → $NEW_GW"
+        echo "  Extension: $OLD_EXTENSION → $NEW_EXTENSION"
+        echo "  Gateway:   $OLD_GATEWAY → $NEW_GATEWAY"
         kubectl patch documentdb $DB_NAME -n $DB_NS --type='merge' \
-          -p "{\"spec\":{\"documentDBImage\":\"$NEW_EXT\",\"gatewayImage\":\"$NEW_GW\"}}"
+          -p "{\"spec\":{\"documentDBImage\":\"$NEW_EXTENSION\",\"gatewayImage\":\"$NEW_GATEWAY\"}}"
         
-        # Extract expected version from image tag (e.g., "0.110.0" -> "0.110-0")
-        # NOTE: This parsing assumes semver format "X.Y.Z" where the last component becomes
-        # hyphen-separated in the extension version. Pre-release tags (e.g., "0.110.0-beta")
-        # are not currently supported and would not be converted correctly.
-        NEW_VERSION_TAG="${NEW_EXT##*:}"
-        EXPECTED_VERSION=$(echo "$NEW_VERSION_TAG" | sed 's/\.\([^.]*\)$/-\1/')
+        NEW_VERSION_TAG="${NEW_EXTENSION##*:}"
+        EXPECTED_VERSION="$NEW_VERSION_TAG"
         echo "Expected DocumentDB version after upgrade: $EXPECTED_VERSION"
         
         echo "Waiting for cluster to be healthy with new images..."
@@ -185,8 +228,14 @@ jobs:
             if [[ "$DOCUMENTDB_VERSION" == "'"$EXPECTED_VERSION"'" ]]; then
               HEALTHY_PODS=$(kubectl get cluster '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.instancesStatus.healthy}" 2>/dev/null | jq length 2>/dev/null || echo "0")
               if [[ "$HEALTHY_PODS" -ge "1" ]]; then
-                echo "✓ Cluster healthy with $HEALTHY_PODS pods"
-                break
+                # Verify pods are actually running the new extension image
+                POD_IMAGES=$(kubectl get pods -n '$DB_NS' -l cnpg.io/cluster='$DB_NAME' -o jsonpath="{.items[*].spec.initContainers[*].image}" 2>/dev/null)
+                if echo "$POD_IMAGES" | grep -q "'"$NEW_EXTENSION"'"; then
+                  echo "✓ Cluster healthy with $HEALTHY_PODS pods running new images"
+                  break
+                else
+                  echo "Pods not yet running new extension image, waiting..."
+                fi
               fi
             fi
           fi
@@ -195,20 +244,20 @@ jobs:
         '
         
         # Verify extension image
-        FINAL_EXT=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.spec.documentDBImage}')
-        if [[ "$FINAL_EXT" != "$NEW_EXT" ]]; then
-          echo "❌ Extension image not applied: expected $NEW_EXT, got $FINAL_EXT"
+        FINAL_EXTENSION=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.spec.documentDBImage}')
+        if [[ "$FINAL_EXTENSION" != "$NEW_EXTENSION" ]]; then
+          echo "❌ Extension image not applied: expected $NEW_EXTENSION, got $FINAL_EXTENSION"
           exit 1
         fi
-        echo "✓ Extension image upgraded to $NEW_EXT"
+        echo "✓ Extension image upgraded to $NEW_EXTENSION"
         
         # Verify gateway image in CNPG cluster
-        FINAL_GW=$(kubectl get cluster $DB_NAME -n $DB_NS -o jsonpath='{.spec.plugins[0].parameters.gatewayImage}')
-        if [[ "$FINAL_GW" != "$NEW_GW" ]]; then
-          echo "❌ Gateway image not applied: expected $NEW_GW, got $FINAL_GW"
+        FINAL_GATEWAY=$(kubectl get cluster $DB_NAME -n $DB_NS -o jsonpath='{.spec.plugins[0].parameters.gatewayImage}')
+        if [[ "$FINAL_GATEWAY" != "$NEW_GATEWAY" ]]; then
+          echo "❌ Gateway image not applied: expected $NEW_GATEWAY, got $FINAL_GATEWAY"
           exit 1
         fi
-        echo "✓ Gateway image upgraded to $NEW_GW"
+        echo "✓ Gateway image upgraded to $NEW_GATEWAY"
         
         # Verify DocumentDB version updated
         VERSION_AFTER=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBVersion}')
@@ -223,33 +272,75 @@ jobs:
         echo "=== Status Field Verification ==="
         STATUS_DB_IMAGE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBImage}')
         echo "status.documentDBImage: $STATUS_DB_IMAGE"
-        if [[ "$STATUS_DB_IMAGE" == "$NEW_EXT" ]]; then
+        if [[ "$STATUS_DB_IMAGE" == "$NEW_EXTENSION" ]]; then
           echo "✓ status.documentDBImage matches new extension image"
         else
-          echo "⚠️ status.documentDBImage ($STATUS_DB_IMAGE) does not match expected ($NEW_EXT)"
+          echo "⚠️ status.documentDBImage ($STATUS_DB_IMAGE) does not match expected ($NEW_EXTENSION)"
         fi
         
-        STATUS_GW_IMAGE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.gatewayImage}')
-        echo "status.gatewayImage: $STATUS_GW_IMAGE"
-        if [[ "$STATUS_GW_IMAGE" == "$NEW_GW" ]]; then
+        STATUS_GATEWAY_IMAGE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.gatewayImage}')
+        echo "status.gatewayImage: $STATUS_GATEWAY_IMAGE"
+        if [[ "$STATUS_GATEWAY_IMAGE" == "$NEW_GATEWAY" ]]; then
           echo "✓ status.gatewayImage matches new gateway image"
         else
-          echo "⚠️ status.gatewayImage ($STATUS_GW_IMAGE) does not match expected ($NEW_GW)"
+          echo "⚠️ status.gatewayImage ($STATUS_GATEWAY_IMAGE) does not match expected ($NEW_GATEWAY)"
         fi
         
         echo ""
         echo "✅ Step 1 passed: Both images upgraded successfully"
-        echo "  Extension: $OLD_EXT → $NEW_EXT"
-        echo "  Gateway:   $OLD_GW → $NEW_GW"
+        echo "  Extension: $OLD_EXTENSION → $NEW_EXTENSION"
+        echo "  Gateway:   $OLD_GATEWAY → $NEW_GATEWAY"
+
+    - name: Setup port forwarding for upgrade verification
+      uses: ./.github/actions/setup-port-forwarding
+      with:
+        namespace: ${{ env.DB_NS }}
+        cluster-name: ${{ env.DB_NAME }}
+        port: ${{ env.DB_PORT }}
+        architecture: ${{ matrix.architecture }}
+        test-type: 'comprehensive'
+
+    - name: Verify data persistence after upgrade
+      run: |
+        echo "=== Data Persistence: Verifying after upgrade ==="
+        mongosh 127.0.0.1:$DB_PORT \
+          -u $DB_USERNAME \
+          -p $DB_PASSWORD \
+          --authenticationMechanism SCRAM-SHA-256 \
+          --tls \
+          --tlsAllowInvalidCertificates \
+          --eval '
+            db = db.getSiblingDB("upgrade_test_db");
+            var doc = db.test_collection.findOne({ _id: "persistence_check" });
+            assert(doc !== null, "Persistence check document not found after upgrade");
+            assert(doc.data === "this_must_survive_rollback", "Data corrupted after upgrade");
+            assert(doc.count === 42, "Count field corrupted after upgrade");
+            var marker = db.test_collection.findOne({ _id: "upgrade_marker" });
+            assert(marker !== null, "Upgrade marker document not found after upgrade");
+            var count = db.test_collection.countDocuments();
+            assert(count === 2, "Expected 2 documents but found " + count + " after upgrade");
+            print("✓ All " + count + " documents persisted through upgrade");
+          '
+        echo "✓ Data persistence verified after upgrade"
+
+    - name: Cleanup port forwarding after upgrade verification
+      if: always()
+      run: |
+        if [ -f /tmp/pf_pid ]; then
+          PF_PID=$(cat /tmp/pf_pid)
+          kill $PF_PID 2>/dev/null || true
+          rm -f /tmp/pf_pid
+        fi
+        rm -f /tmp/pf_output.log
 
     - name: "Step 2: Rollback Extension Image (gateway stays at new version)"
       run: |
         echo "=== Step 2: Rollback Extension Image ==="
         echo "Rolling back extension image while keeping gateway at new version..."
         
-        OLD_EXT="${{ env.DOCUMENTDB_OLD_IMAGE }}"
-        NEW_EXT="${{ env.DOCUMENTDB_IMAGE }}"
-        NEW_GW="${{ env.GATEWAY_IMAGE }}"
+        OLD_EXTENSION="${{ env.DOCUMENTDB_OLD_IMAGE }}"
+        NEW_EXTENSION="${{ env.DOCUMENTDB_IMAGE }}"
+        NEW_GATEWAY="${{ env.GATEWAY_IMAGE }}"
         
         # Record state before rollback
         VERSION_BEFORE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBVersion}')
@@ -260,9 +351,9 @@ jobs:
         
         # Rollback only extension image
         echo ""
-        echo "Patching spec.documentDBImage: $NEW_EXT → $OLD_EXT"
+        echo "Patching spec.documentDBImage: $NEW_EXTENSION → $OLD_EXTENSION"
         kubectl patch documentdb $DB_NAME -n $DB_NS --type='merge' \
-          -p "{\"spec\":{\"documentDBImage\":\"$OLD_EXT\"}}"
+          -p "{\"spec\":{\"documentDBImage\":\"$OLD_EXTENSION\"}}"
         
         echo "Waiting for cluster to stabilize after extension rollback..."
         timeout 600 bash -c '
@@ -273,8 +364,14 @@ jobs:
           if [[ "$DB_STATUS" == "Cluster in healthy state" && "$CLUSTER_STATUS" == "Cluster in healthy state" ]]; then
             HEALTHY_PODS=$(kubectl get cluster '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.instancesStatus.healthy}" 2>/dev/null | jq length 2>/dev/null || echo "0")
             if [[ "$HEALTHY_PODS" -ge "1" ]]; then
-              echo "✓ Cluster healthy with $HEALTHY_PODS pods"
-              break
+              # Verify pods are running the rolled-back extension image
+              POD_IMAGES=$(kubectl get pods -n '$DB_NS' -l cnpg.io/cluster='$DB_NAME' -o jsonpath="{.items[*].spec.initContainers[*].image}" 2>/dev/null)
+              if echo "$POD_IMAGES" | grep -q "'"$OLD_EXTENSION"'"; then
+                echo "✓ Cluster healthy with $HEALTHY_PODS pods running rolled-back extension image"
+                break
+              else
+                echo "Pods not yet running rolled-back extension image, waiting..."
+              fi
             fi
           fi
           sleep 10
@@ -285,11 +382,11 @@ jobs:
         echo "=== Extension Rollback Verification ==="
         
         # Verify extension image rolled back
-        CURRENT_EXT=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.spec.documentDBImage}')
-        if [[ "$CURRENT_EXT" == "$OLD_EXT" ]]; then
-          echo "✓ spec.documentDBImage correctly rolled back to $OLD_EXT"
+        CURRENT_EXTENSION=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.spec.documentDBImage}')
+        if [[ "$CURRENT_EXTENSION" == "$OLD_EXTENSION" ]]; then
+          echo "✓ spec.documentDBImage correctly rolled back to $OLD_EXTENSION"
         else
-          echo "❌ spec.documentDBImage should be $OLD_EXT but is $CURRENT_EXT"
+          echo "❌ spec.documentDBImage should be $OLD_EXTENSION but is $CURRENT_EXTENSION"
           exit 1
         fi
         
@@ -303,59 +400,106 @@ jobs:
           echo "⚠️ Schema version changed from $VERSION_BEFORE to $VERSION_AFTER"
         fi
         
-        # Verify ExtensionRollback warning event
-        sleep 30
-        EVENTS_AFTER=$(kubectl get events -n $DB_NS --field-selector reason=ExtensionRollback --no-headers 2>/dev/null | wc -l || echo "0")
+        # Verify ExtensionRollback warning event (poll up to 60s instead of hardcoded sleep)
+        echo "Waiting for ExtensionRollback event..."
+        EVENTS_AFTER=$EVENTS_BEFORE
+        for i in $(seq 1 12); do
+          EVENTS_AFTER=$(kubectl get events -n $DB_NS --field-selector reason=ExtensionRollback --no-headers 2>/dev/null | wc -l || echo "0")
+          if [[ "$EVENTS_AFTER" -gt "$EVENTS_BEFORE" ]]; then
+            break
+          fi
+          sleep 5
+        done
         echo "ExtensionRollback events after: $EVENTS_AFTER"
         if [[ "$EVENTS_AFTER" -gt "$EVENTS_BEFORE" ]]; then
           echo "✓ ExtensionRollback warning event detected"
           kubectl get events -n $DB_NS --field-selector reason=ExtensionRollback
         else
-          echo "⚠️ No new ExtensionRollback event detected"
+          echo "⚠️ No new ExtensionRollback event detected within 60s"
           kubectl get events -n $DB_NS --sort-by='.lastTimestamp' | tail -20
         fi
         
         # Verify gateway image UNCHANGED at new version
-        CURRENT_GW=$(kubectl get cluster $DB_NAME -n $DB_NS -o jsonpath='{.spec.plugins[0].parameters.gatewayImage}')
+        CURRENT_GATEWAY=$(kubectl get cluster $DB_NAME -n $DB_NS -o jsonpath='{.spec.plugins[0].parameters.gatewayImage}')
         echo ""
-        echo "Gateway image after extension rollback: $CURRENT_GW"
-        if [[ "$CURRENT_GW" == "$NEW_GW" ]]; then
-          echo "✓ Gateway image unchanged at $NEW_GW (extension rollback did not affect gateway)"
+        echo "Gateway image after extension rollback: $CURRENT_GATEWAY"
+        if [[ "$CURRENT_GATEWAY" == "$NEW_GATEWAY" ]]; then
+          echo "✓ Gateway image unchanged at $NEW_GATEWAY (extension rollback did not affect gateway)"
         else
-          echo "❌ Gateway image changed unexpectedly: expected $NEW_GW, got $CURRENT_GW"
+          echo "❌ Gateway image changed unexpectedly: expected $NEW_GATEWAY, got $CURRENT_GATEWAY"
           exit 1
         fi
         
         # Verify status fields
         STATUS_DB_IMAGE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBImage}')
         echo "status.documentDBImage: $STATUS_DB_IMAGE"
-        if [[ "$STATUS_DB_IMAGE" == "$OLD_EXT" ]]; then
+        if [[ "$STATUS_DB_IMAGE" == "$OLD_EXTENSION" ]]; then
           echo "✓ status.documentDBImage reflects rolled-back extension"
         else
-          echo "⚠️ status.documentDBImage ($STATUS_DB_IMAGE) does not match $OLD_EXT"
+          echo "⚠️ status.documentDBImage ($STATUS_DB_IMAGE) does not match $OLD_EXTENSION"
         fi
         
-        STATUS_GW_IMAGE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.gatewayImage}')
-        echo "status.gatewayImage: $STATUS_GW_IMAGE"
-        if [[ "$STATUS_GW_IMAGE" == "$NEW_GW" ]]; then
+        STATUS_GATEWAY_IMAGE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.gatewayImage}')
+        echo "status.gatewayImage: $STATUS_GATEWAY_IMAGE"
+        if [[ "$STATUS_GATEWAY_IMAGE" == "$NEW_GATEWAY" ]]; then
           echo "✓ status.gatewayImage still at new gateway version"
         else
-          echo "⚠️ status.gatewayImage ($STATUS_GW_IMAGE) does not match $NEW_GW"
+          echo "⚠️ status.gatewayImage ($STATUS_GATEWAY_IMAGE) does not match $NEW_GATEWAY"
         fi
         
         echo ""
         echo "✅ Step 2 passed: Extension rolled back, gateway unchanged"
-        echo "  Extension: $NEW_EXT → $OLD_EXT (rolled back)"
-        echo "  Gateway:   $NEW_GW (unchanged)"
+        echo "  Extension: $NEW_EXTENSION → $OLD_EXTENSION (rolled back)"
+        echo "  Gateway:   $NEW_GATEWAY (unchanged)"
+
+    - name: Setup port forwarding for extension rollback verification
+      uses: ./.github/actions/setup-port-forwarding
+      with:
+        namespace: ${{ env.DB_NS }}
+        cluster-name: ${{ env.DB_NAME }}
+        port: ${{ env.DB_PORT }}
+        architecture: ${{ matrix.architecture }}
+        test-type: 'comprehensive'
+
+    - name: Verify data persistence after extension rollback
+      run: |
+        echo "=== Data Persistence: Verifying after extension rollback ==="
+        mongosh 127.0.0.1:$DB_PORT \
+          -u $DB_USERNAME \
+          -p $DB_PASSWORD \
+          --authenticationMechanism SCRAM-SHA-256 \
+          --tls \
+          --tlsAllowInvalidCertificates \
+          --eval '
+            db = db.getSiblingDB("upgrade_test_db");
+            var doc = db.test_collection.findOne({ _id: "persistence_check" });
+            assert(doc !== null, "Persistence check document not found after extension rollback");
+            assert(doc.data === "this_must_survive_rollback", "Data corrupted after extension rollback");
+            assert(doc.count === 42, "Count field corrupted after extension rollback");
+            var count = db.test_collection.countDocuments();
+            assert(count === 2, "Expected 2 documents but found " + count + " after extension rollback");
+            print("✓ All " + count + " documents persisted through extension rollback");
+          '
+        echo "✓ Data persistence verified after extension rollback"
+
+    - name: Cleanup port forwarding after extension rollback verification
+      if: always()
+      run: |
+        if [ -f /tmp/pf_pid ]; then
+          PF_PID=$(cat /tmp/pf_pid)
+          kill $PF_PID 2>/dev/null || true
+          rm -f /tmp/pf_pid
+        fi
+        rm -f /tmp/pf_output.log
 
     - name: "Step 3: Rollback Gateway Image (extension stays at old version)"
       run: |
         echo "=== Step 3: Rollback Gateway Image ==="
         echo "Rolling back gateway image while keeping extension at old version..."
         
-        OLD_EXT="${{ env.DOCUMENTDB_OLD_IMAGE }}"
-        OLD_GW="${{ env.GATEWAY_OLD_IMAGE }}"
-        NEW_GW="${{ env.GATEWAY_IMAGE }}"
+        OLD_EXTENSION="${{ env.DOCUMENTDB_OLD_IMAGE }}"
+        OLD_GATEWAY="${{ env.GATEWAY_OLD_IMAGE }}"
+        NEW_GATEWAY="${{ env.GATEWAY_IMAGE }}"
         
         # Record state before gateway rollback
         VERSION_BEFORE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBVersion}')
@@ -363,9 +507,9 @@ jobs:
         
         # Rollback only gateway image
         echo ""
-        echo "Patching spec.gatewayImage: $NEW_GW → $OLD_GW"
+        echo "Patching spec.gatewayImage: $NEW_GATEWAY → $OLD_GATEWAY"
         kubectl patch documentdb $DB_NAME -n $DB_NS --type='merge' \
-          -p "{\"spec\":{\"gatewayImage\":\"$OLD_GW\"}}"
+          -p "{\"spec\":{\"gatewayImage\":\"$OLD_GATEWAY\"}}"
         
         echo "Waiting for cluster to stabilize after gateway rollback..."
         timeout 600 bash -c '
@@ -376,8 +520,14 @@ jobs:
           if [[ "$DB_STATUS" == "Cluster in healthy state" && "$CLUSTER_STATUS" == "Cluster in healthy state" ]]; then
             HEALTHY_PODS=$(kubectl get cluster '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.instancesStatus.healthy}" 2>/dev/null | jq length 2>/dev/null || echo "0")
             if [[ "$HEALTHY_PODS" -ge "1" ]]; then
-              echo "✓ Cluster healthy with $HEALTHY_PODS pods"
-              break
+              # Verify gateway plugin parameter reflects the rolled-back image
+              CURRENT_GW_PARAM=$(kubectl get cluster '$DB_NAME' -n '$DB_NS' -o jsonpath="{.spec.plugins[0].parameters.gatewayImage}" 2>/dev/null)
+              if [[ "$CURRENT_GW_PARAM" == "'"$OLD_GATEWAY"'" ]]; then
+                echo "✓ Cluster healthy with $HEALTHY_PODS pods and gateway image rolled back"
+                break
+              else
+                echo "Gateway image not yet rolled back in cluster spec, waiting..."
+              fi
             fi
           fi
           sleep 10
@@ -388,21 +538,21 @@ jobs:
         echo "=== Gateway Rollback Verification ==="
         
         # Verify gateway image rolled back in CNPG cluster
-        CURRENT_GW=$(kubectl get cluster $DB_NAME -n $DB_NS -o jsonpath='{.spec.plugins[0].parameters.gatewayImage}')
-        if [[ "$CURRENT_GW" == "$OLD_GW" ]]; then
-          echo "✓ Gateway image rolled back to $OLD_GW"
+        CURRENT_GATEWAY=$(kubectl get cluster $DB_NAME -n $DB_NS -o jsonpath='{.spec.plugins[0].parameters.gatewayImage}')
+        if [[ "$CURRENT_GATEWAY" == "$OLD_GATEWAY" ]]; then
+          echo "✓ Gateway image rolled back to $OLD_GATEWAY"
         else
-          echo "❌ Gateway image should be $OLD_GW but is $CURRENT_GW"
+          echo "❌ Gateway image should be $OLD_GATEWAY but is $CURRENT_GATEWAY"
           exit 1
         fi
         
         # Verify extension image UNCHANGED at old version
-        CURRENT_EXT=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.spec.documentDBImage}')
-        echo "Extension image after gateway rollback: $CURRENT_EXT"
-        if [[ "$CURRENT_EXT" == "$OLD_EXT" ]]; then
-          echo "✓ Extension image unchanged at $OLD_EXT (gateway rollback did not affect extension)"
+        CURRENT_EXTENSION=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.spec.documentDBImage}')
+        echo "Extension image after gateway rollback: $CURRENT_EXTENSION"
+        if [[ "$CURRENT_EXTENSION" == "$OLD_EXTENSION" ]]; then
+          echo "✓ Extension image unchanged at $OLD_EXTENSION (gateway rollback did not affect extension)"
         else
-          echo "❌ Extension image changed unexpectedly: expected $OLD_EXT, got $CURRENT_EXT"
+          echo "❌ Extension image changed unexpectedly: expected $OLD_EXTENSION, got $CURRENT_EXTENSION"
           exit 1
         fi
         
@@ -419,24 +569,66 @@ jobs:
         # Verify status fields
         STATUS_DB_IMAGE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBImage}')
         echo "status.documentDBImage: $STATUS_DB_IMAGE"
-        if [[ "$STATUS_DB_IMAGE" == "$OLD_EXT" ]]; then
+        if [[ "$STATUS_DB_IMAGE" == "$OLD_EXTENSION" ]]; then
           echo "✓ status.documentDBImage still at old extension"
         else
-          echo "⚠️ status.documentDBImage ($STATUS_DB_IMAGE) does not match $OLD_EXT"
+          echo "⚠️ status.documentDBImage ($STATUS_DB_IMAGE) does not match $OLD_EXTENSION"
         fi
         
-        STATUS_GW_IMAGE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.gatewayImage}')
-        echo "status.gatewayImage: $STATUS_GW_IMAGE"
-        if [[ "$STATUS_GW_IMAGE" == "$OLD_GW" ]]; then
+        STATUS_GATEWAY_IMAGE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.gatewayImage}')
+        echo "status.gatewayImage: $STATUS_GATEWAY_IMAGE"
+        if [[ "$STATUS_GATEWAY_IMAGE" == "$OLD_GATEWAY" ]]; then
           echo "✓ status.gatewayImage reflects rolled-back gateway"
         else
-          echo "⚠️ status.gatewayImage ($STATUS_GW_IMAGE) does not match $OLD_GW"
+          echo "⚠️ status.gatewayImage ($STATUS_GATEWAY_IMAGE) does not match $OLD_GATEWAY"
         fi
         
         echo ""
         echo "✅ Step 3 passed: Gateway rolled back, extension unchanged"
-        echo "  Extension: $OLD_EXT (unchanged)"
-        echo "  Gateway:   $NEW_GW → $OLD_GW (rolled back)"
+        echo "  Extension: $OLD_EXTENSION (unchanged)"
+        echo "  Gateway:   $NEW_GATEWAY → $OLD_GATEWAY (rolled back)"
+
+    - name: Setup port forwarding for gateway rollback verification
+      uses: ./.github/actions/setup-port-forwarding
+      with:
+        namespace: ${{ env.DB_NS }}
+        cluster-name: ${{ env.DB_NAME }}
+        port: ${{ env.DB_PORT }}
+        architecture: ${{ matrix.architecture }}
+        test-type: 'comprehensive'
+
+    - name: Verify data persistence after gateway rollback
+      run: |
+        echo "=== Data Persistence: Verifying after gateway rollback ==="
+        mongosh 127.0.0.1:$DB_PORT \
+          -u $DB_USERNAME \
+          -p $DB_PASSWORD \
+          --authenticationMechanism SCRAM-SHA-256 \
+          --tls \
+          --tlsAllowInvalidCertificates \
+          --eval '
+            db = db.getSiblingDB("upgrade_test_db");
+            var doc = db.test_collection.findOne({ _id: "persistence_check" });
+            assert(doc !== null, "Persistence check document not found after gateway rollback");
+            assert(doc.data === "this_must_survive_rollback", "Data corrupted after gateway rollback");
+            assert(doc.count === 42, "Count field corrupted after gateway rollback");
+            var marker = db.test_collection.findOne({ _id: "upgrade_marker" });
+            assert(marker !== null, "Upgrade marker document not found after gateway rollback");
+            var count = db.test_collection.countDocuments();
+            assert(count === 2, "Expected 2 documents but found " + count + " after gateway rollback");
+            print("✓ All " + count + " documents persisted through full upgrade/rollback cycle");
+          '
+        echo "✓ Data persistence verified after gateway rollback"
+
+    - name: Cleanup port forwarding after gateway rollback verification
+      if: always()
+      run: |
+        if [ -f /tmp/pf_pid ]; then
+          PF_PID=$(cat /tmp/pf_pid)
+          kill $PF_PID 2>/dev/null || true
+          rm -f /tmp/pf_pid
+        fi
+        rm -f /tmp/pf_output.log
 
     - name: Collect comprehensive logs on failure
       if: failure()
@@ -453,7 +645,6 @@ jobs:
         echo "## Upgrade & Rollback Test Summary for ${{ matrix.architecture }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "- **Architecture**: ${{ matrix.architecture }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Kubernetes Version**: ${{ env.KUBERNETES_VERSION }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Old Extension Image**: ${{ env.DOCUMENTDB_OLD_IMAGE }}" >> $GITHUB_STEP_SUMMARY
         echo "- **New Extension Image**: ${{ env.DOCUMENTDB_IMAGE }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Old Gateway Image**: ${{ env.GATEWAY_OLD_IMAGE }}" >> $GITHUB_STEP_SUMMARY

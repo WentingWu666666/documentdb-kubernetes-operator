@@ -56,7 +56,8 @@ inputs:
     default: 'false'
   documentdb-image:
     description: 'DocumentDB image to use for the cluster'
-    required: true
+    required: false
+    default: 'ghcr.io/guanzhousongmicrosoft/documentdb-pg18:0.110.0'
   gateway-image:
     description: 'Gateway image to use for the cluster (defaults to ghcr.io/microsoft/documentdb/documentdb-local:16)'
     required: false
@@ -208,23 +209,12 @@ runs:
         mongosh --version
         echo "✓ mongosh installed successfully for ${{ inputs.architecture }}"
 
-    - name: Create kind config file
-      shell: bash
-      run: |
-        cat > /tmp/kind-config.yaml <<EOF
-        kind: Cluster
-        apiVersion: kind.x-k8s.io/v1alpha4
-        EOF
-        echo "Kind config file created (K8s ${{ inputs.kubernetes-version }}):"
-        cat /tmp/kind-config.yaml
-
     - name: Create kind cluster
       uses: helm/kind-action@v1.12.0
       with:
         version: v0.31.0
         node_image: kindest/node:${{ inputs.kubernetes-version }}
         cluster_name: documentdb-${{ inputs.test-type }}-${{ inputs.architecture }}-${{ inputs.test-scenario-name }}
-        config: /tmp/kind-config.yaml
 
     - name: Load Docker images into kind cluster (local build)
       if: inputs.use-external-images == 'false'

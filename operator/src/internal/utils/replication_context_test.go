@@ -95,27 +95,27 @@ func TestReplicationContext_GetReplicationSource(t *testing.T) {
 		{
 			name: "Replica state returns primary cluster",
 			context: ReplicationContext{
-				state:                        Replica,
-				PrimaryCNPGClusterName:       "primary-cluster",
-				OtherCNPGClusterNames:        []string{"other-cluster-1", "other-cluster-2"},
+				state:                  Replica,
+				PrimaryCNPGClusterName: "primary-cluster",
+				OtherCNPGClusterNames:  []string{"other-cluster-1", "other-cluster-2"},
 			},
 			expected: "primary-cluster",
 		},
 		{
 			name: "Primary state returns first other cluster",
 			context: ReplicationContext{
-				state:                        Primary,
-				PrimaryCNPGClusterName:       "primary-cluster",
-				OtherCNPGClusterNames:        []string{"other-cluster-1", "other-cluster-2"},
+				state:                  Primary,
+				PrimaryCNPGClusterName: "primary-cluster",
+				OtherCNPGClusterNames:  []string{"other-cluster-1", "other-cluster-2"},
 			},
 			expected: "other-cluster-1",
 		},
 		{
-			name: "Replica state with empty Others still returns primary cluster",
+			name: "Replica state with empty OtherCNPGClusterNames still returns primary cluster",
 			context: ReplicationContext{
-				state:                        Replica,
-				PrimaryCNPGClusterName:       "primary-cluster",
-				OtherCNPGClusterNames:        []string{},
+				state:                  Replica,
+				PrimaryCNPGClusterName: "primary-cluster",
+				OtherCNPGClusterNames:  []string{},
 			},
 			expected: "primary-cluster",
 		},
@@ -130,32 +130,32 @@ func TestReplicationContext_GetReplicationSource(t *testing.T) {
 		})
 	}
 
-	// Document panic behavior for edge cases where Others is empty.
+	// Document panic behavior for edge cases where OtherCNPGClusterNames is empty.
 	// These test cases verify that GetReplicationSource panics when called
-	// inappropriately, documenting the precondition that Others must be
+	// inappropriately, documenting the precondition that OtherCNPGClusterNames must be
 	// non-empty when state is Primary or NoReplication.
-	t.Run("Primary state with empty Others panics", func(t *testing.T) {
+	t.Run("Primary state with empty OtherCNPGClusterNames panics", func(t *testing.T) {
 		defer func() {
 			if r := recover(); r == nil {
-				t.Error("Expected panic when Primary state has empty Others slice, but no panic occurred")
+				t.Error("Expected panic when Primary state has empty OtherCNPGClusterNames slice, but no panic occurred")
 			}
 		}()
 		ctx := ReplicationContext{
-			state:                   Primary,
-			OtherCNPGClusterNames:  []string{},
+			state:                 Primary,
+			OtherCNPGClusterNames: []string{},
 		}
 		_ = ctx.GetReplicationSource()
 	})
 
-	t.Run("NoReplication state with empty Others panics", func(t *testing.T) {
+	t.Run("NoReplication state with empty OtherCNPGClusterNames panics", func(t *testing.T) {
 		defer func() {
 			if r := recover(); r == nil {
-				t.Error("Expected panic when NoReplication state has empty Others slice, but no panic occurred")
+				t.Error("Expected panic when NoReplication state has empty OtherCNPGClusterNames slice, but no panic occurred")
 			}
 		}()
 		ctx := ReplicationContext{
-			state:                   NoReplication,
-			OtherCNPGClusterNames:  []string{},
+			state:                 NoReplication,
+			OtherCNPGClusterNames: []string{},
 		}
 		_ = ctx.GetReplicationSource()
 	})
@@ -300,30 +300,30 @@ func TestReplicationContext_String(t *testing.T) {
 		{
 			name: "NoReplication state",
 			context: ReplicationContext{
-				CNPGClusterName:            "self-cluster",
-				state:                      NoReplication,
-				OtherCNPGClusterNames:      []string{"other-1"},
-				PrimaryCNPGClusterName:     "primary",
-				currentLocalPrimary:        "local-1",
-				targetLocalPrimary:         "target-1",
+				CNPGClusterName:        "self-cluster",
+				state:                  NoReplication,
+				OtherCNPGClusterNames:  []string{"other-1"},
+				PrimaryCNPGClusterName: "primary",
+				currentLocalPrimary:    "local-1",
+				targetLocalPrimary:     "target-1",
 			},
 			contains: []string{"self-cluster", "NoReplication", "other-1"},
 		},
 		{
 			name: "Primary state",
 			context: ReplicationContext{
-				CNPGClusterName:           "primary-self",
-				state:                     Primary,
-				OtherCNPGClusterNames:     []string{"replica-1", "replica-2"},
+				CNPGClusterName:       "primary-self",
+				state:                 Primary,
+				OtherCNPGClusterNames: []string{"replica-1", "replica-2"},
 			},
 			contains: []string{"primary-self", "Primary", "replica-1"},
 		},
 		{
 			name: "Replica state",
 			context: ReplicationContext{
-				CNPGClusterName:          "replica-self",
-				state:                    Replica,
-				PrimaryCNPGClusterName:   "the-primary",
+				CNPGClusterName:        "replica-self",
+				state:                  Replica,
+				PrimaryCNPGClusterName: "the-primary",
 			},
 			contains: []string{"replica-self", "Replica"},
 		},
@@ -336,53 +336,6 @@ func TestReplicationContext_String(t *testing.T) {
 				if !strings.Contains(result, substr) {
 					t.Errorf("String() = %q, expected to contain %q", result, substr)
 				}
-			}
-		})
-	}
-}
-
-func TestReplicationContext_CreateStandbyNamesList(t *testing.T) {
-	tests := []struct {
-		name           string
-		context        ReplicationContext
-		expectedLength int
-		expectedFirst  string
-	}{
-		{
-			name: "returns other clusters as-is",
-			context: ReplicationContext{
-				OtherCNPGClusterNames: []string{"cluster-a", "cluster-b"},
-			},
-			expectedLength: 2,
-			expectedFirst:  "cluster-a",
-		},
-		{
-			name: "single other cluster",
-			context: ReplicationContext{
-				OtherCNPGClusterNames: []string{"single-cluster"},
-			},
-			expectedLength: 1,
-			expectedFirst:  "single-cluster",
-		},
-		{
-			name: "empty others list",
-			context: ReplicationContext{
-				OtherCNPGClusterNames: []string{},
-			},
-			expectedLength: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tt.context.CreateStandbyNamesList()
-
-			if len(result) != tt.expectedLength {
-				t.Errorf("CreateStandbyNamesList() returned %d items, expected %d", len(result), tt.expectedLength)
-			}
-
-			if len(tt.context.OtherCNPGClusterNames) > 0 && result[0] != tt.expectedFirst {
-				t.Errorf("First item = %q, expected %q", result[0], tt.expectedFirst)
 			}
 		})
 	}
@@ -411,7 +364,7 @@ func TestReplicationContext_GenerateExternalClusterServices(t *testing.T) {
 			name: "generates services for others with fleet enabled",
 			context: ReplicationContext{
 				OtherCNPGClusterNames: []string{"cluster-a", "cluster-b"},
-				CNPGClusterName:        "self-cluster",
+				CNPGClusterName:       "self-cluster",
 			},
 			docdbName:     "mydb",
 			namespace:     "production",
@@ -462,7 +415,7 @@ func TestReplicationContext_GenerateIncomingServiceNames(t *testing.T) {
 			name: "generates incoming service names",
 			context: ReplicationContext{
 				OtherCNPGClusterNames: []string{"cluster-a", "cluster-b"},
-				CNPGClusterName:        "self-cluster",
+				CNPGClusterName:       "self-cluster",
 			},
 			docdbName:     "mydb",
 			resourceGroup: "rg1",
@@ -472,7 +425,7 @@ func TestReplicationContext_GenerateIncomingServiceNames(t *testing.T) {
 			name: "empty others list",
 			context: ReplicationContext{
 				OtherCNPGClusterNames: []string{},
-				CNPGClusterName:        "self-cluster",
+				CNPGClusterName:       "self-cluster",
 			},
 			docdbName:     "mydb",
 			resourceGroup: "rg1",
@@ -509,7 +462,7 @@ func TestReplicationContext_GenerateOutgoingServiceNames(t *testing.T) {
 			name: "generates outgoing service names",
 			context: ReplicationContext{
 				OtherCNPGClusterNames: []string{"cluster-a", "cluster-b"},
-				CNPGClusterName:        "self-cluster",
+				CNPGClusterName:       "self-cluster",
 			},
 			docdbName:     "mydb",
 			resourceGroup: "rg1",
@@ -519,7 +472,7 @@ func TestReplicationContext_GenerateOutgoingServiceNames(t *testing.T) {
 			name: "empty others list",
 			context: ReplicationContext{
 				OtherCNPGClusterNames: []string{},
-				CNPGClusterName:        "self-cluster",
+				CNPGClusterName:       "self-cluster",
 			},
 			docdbName:     "mydb",
 			resourceGroup: "rg1",
