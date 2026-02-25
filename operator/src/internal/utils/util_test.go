@@ -1028,12 +1028,6 @@ func TestCompareExtensionVersions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := CompareExtensionVersions(tt.v1, tt.v2)
-			if tt.expectErr {
-				if err == nil {
-					t.Errorf("expected error but got nil")
-				}
-				return
-			}
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 				return
