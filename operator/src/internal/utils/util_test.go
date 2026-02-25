@@ -1039,6 +1039,34 @@ func TestCompareExtensionVersions(t *testing.T) {
 	}
 }
 
+func TestCompareExtensionVersionsErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		v1   string
+		v2   string
+	}{
+		{
+			name: "invalid v1 format",
+			v1:   "abc",
+			v2:   "0.110-0",
+		},
+		{
+			name: "invalid v2 format",
+			v1:   "0.110-0",
+			v2:   "xyz",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := CompareExtensionVersions(tt.v1, tt.v2)
+			if err == nil {
+				t.Errorf("CompareExtensionVersions(%q, %q) expected error, got nil", tt.v1, tt.v2)
+			}
+		})
+	}
+}
+
 func TestExtensionVersionToSemver(t *testing.T) {
 	tests := []struct {
 		name     string

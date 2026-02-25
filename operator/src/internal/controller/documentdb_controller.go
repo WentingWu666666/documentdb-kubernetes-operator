@@ -64,6 +64,10 @@ type DocumentDBReconciler struct {
 	// When true, the operator uses separate PostgreSQL + extension images via CNPG Extensions.
 	// When false, it falls back to a combined image containing both (legacy mode for K8s < 1.35).
 	ImageVolumeSupported bool
+	// SQLExecutor executes SQL commands against a CNPG cluster's primary pod.
+	// Defaults to executeSQLCommand (real pod exec via SPDY). Override in tests
+	// to inject canned responses without requiring a live Kubernetes cluster.
+	SQLExecutor func(ctx context.Context, cluster *cnpgv1.Cluster, sqlCommand string) (string, error)
 }
 
 var reconcileMutex sync.Mutex
@@ -238,7 +242,7 @@ func (r *DocumentDBReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if slices.Contains(currentCnpgCluster.Status.InstancesStatus[cnpgv1.PodHealthy], currentCnpgCluster.Status.CurrentPrimary) && replicationContext.IsPrimary() {
 		// Check if permissions have already been granted
 		checkCommand := "SELECT 1 FROM pg_roles WHERE rolname = 'streaming_replica' AND pg_has_role('streaming_replica', 'documentdb_admin_role', 'USAGE');"
-		output, err := r.executeSQLCommand(ctx, currentCnpgCluster, checkCommand)
+		output, err := r.SQLExecutor(ctx, currentCnpgCluster, checkCommand)
 		if err != nil {
 			logger.Error(err, "Failed to check if permissions already granted")
 			return ctrl.Result{RequeueAfter: RequeueAfterLong}, nil
@@ -247,7 +251,7 @@ func (r *DocumentDBReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if !strings.Contains(output, "(1 row)") {
 			grantCommand := "GRANT documentdb_admin_role TO streaming_replica;"
 
-			if _, err := r.executeSQLCommand(ctx, currentCnpgCluster, grantCommand); err != nil {
+			if _, err := r.SQLExecutor(ctx, currentCnpgCluster, grantCommand); err != nil {
 				logger.Error(err, "Failed to grant permissions to streaming_replica")
 				return ctrl.Result{RequeueAfter: RequeueAfterShort}, nil
 			}
@@ -537,6 +541,9 @@ func documentDBServicePredicate() predicate.Predicate {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DocumentDBReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.SQLExecutor == nil {
+		r.SQLExecutor = r.executeSQLCommand
+	}
 	r.ImageVolumeSupported = r.detectImageVolumeSupport()
 	setupLog := ctrl.Log.WithName("setup")
 	if r.ImageVolumeSupported {
@@ -890,7 +897,7 @@ func (r *DocumentDBReconciler) upgradeDocumentDBIfNeeded(ctx context.Context, cu
 
 	// Step 4: Check if ALTER EXTENSION UPDATE is needed
 	checkVersionSQL := "SELECT default_version, installed_version FROM pg_available_extensions WHERE name = 'documentdb'"
-	output, err := r.executeSQLCommand(ctx, currentCluster, checkVersionSQL)
+	output, err := r.SQLExecutor(ctx, currentCluster, checkVersionSQL)
 	if err != nil {
 		return fmt.Errorf("failed to check documentdb extension versions: %w", err)
 	}
@@ -952,7 +959,7 @@ func (r *DocumentDBReconciler) upgradeDocumentDBIfNeeded(ctx context.Context, cu
 		"toVersion", defaultVersion)
 
 	updateSQL := "ALTER EXTENSION documentdb UPDATE"
-	if _, err := r.executeSQLCommand(ctx, currentCluster, updateSQL); err != nil {
+	if _, err := r.SQLExecutor(ctx, currentCluster, updateSQL); err != nil {
 		return fmt.Errorf("failed to run ALTER EXTENSION documentdb UPDATE: %w", err)
 	}
 

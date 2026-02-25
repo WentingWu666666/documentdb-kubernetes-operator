@@ -70,7 +70,7 @@ jobs:
       DOCUMENTDB_IMAGE: ghcr.io/guanzhousongmicrosoft/documentdb-pg18:0.110.0
       DOCUMENTDB_OLD_IMAGE: ghcr.io/guanzhousongmicrosoft/documentdb-pg18:0.109.0
       GATEWAY_IMAGE: ghcr.io/guanzhousongmicrosoft/documentdb/documentdb-local:pg16-0.110.0
-      GATEWAY_OLD_IMAGE: ghcr.io/documentdb/documentdb/documentdb-local:pg16-0.109.0
+      GATEWAY_OLD_IMAGE: ghcr.io/microsoft/documentdb/documentdb-local:16
 
     steps:
     - name: Checkout repository
