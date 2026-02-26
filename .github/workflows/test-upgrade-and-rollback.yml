@@ -189,14 +189,14 @@ jobs:
         echo "✓ Cluster deployed with old images"
         
         # Record and verify version before upgrade
-        VERSION_BEFORE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBVersion}')
-        echo "DocumentDB version before upgrade: $VERSION_BEFORE"
+        VERSION_BEFORE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.schemaVersion}')
+        echo "DocumentDB schema version before upgrade: $VERSION_BEFORE"
 
-        # The image tag (e.g., "0.110.0") now matches status.documentDBVersion directly
+        # The image tag (e.g., "0.110.0") now matches status.schemaVersion directly
         OLD_VERSION_TAG="${OLD_EXTENSION##*:}"
         EXPECTED_VERSION_BEFORE="$OLD_VERSION_TAG"
         if [[ -z "$VERSION_BEFORE" ]]; then
-          echo "❌ status.documentDBVersion is empty before upgrade"
+          echo "❌ status.schemaVersion is empty before upgrade"
           exit 1
         fi
         if [[ "$VERSION_BEFORE" != "$EXPECTED_VERSION_BEFORE" ]]; then
@@ -222,10 +222,10 @@ jobs:
         while true; do
           DB_STATUS=$(kubectl get documentdb '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.status}" 2>/dev/null)
           CLUSTER_STATUS=$(kubectl get cluster '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.phase}" 2>/dev/null)
-          DOCUMENTDB_VERSION=$(kubectl get documentdb '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.documentDBVersion}" 2>/dev/null || echo "N/A")
-          echo "DocumentDB status: $DB_STATUS, CNPG phase: $CLUSTER_STATUS, version: $DOCUMENTDB_VERSION"
+          SCHEMA_VERSION=$(kubectl get documentdb '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.schemaVersion}" 2>/dev/null || echo "N/A")
+          echo "DocumentDB status: $DB_STATUS, CNPG phase: $CLUSTER_STATUS, schemaVersion: $SCHEMA_VERSION"
           if [[ "$DB_STATUS" == "Cluster in healthy state" && "$CLUSTER_STATUS" == "Cluster in healthy state" ]]; then
-            if [[ "$DOCUMENTDB_VERSION" == "'"$EXPECTED_VERSION"'" ]]; then
+            if [[ "$SCHEMA_VERSION" == "'"$EXPECTED_VERSION"'" ]]; then
               HEALTHY_PODS=$(kubectl get cluster '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.instancesStatus.healthy}" 2>/dev/null | jq length 2>/dev/null || echo "0")
               if [[ "$HEALTHY_PODS" -ge "1" ]]; then
                 # Verify pods are actually running the new extension image
@@ -260,11 +260,11 @@ jobs:
         fi
         echo "✓ Gateway image upgraded to $NEW_GATEWAY"
         
-        # Verify DocumentDB version updated
-        VERSION_AFTER=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBVersion}')
-        echo "DocumentDB version after upgrade: $VERSION_AFTER"
+        # Verify DocumentDB schema version updated
+        VERSION_AFTER=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.schemaVersion}')
+        echo "DocumentDB schema version after upgrade: $VERSION_AFTER"
         if [[ -z "$VERSION_AFTER" ]]; then
-          echo "❌ status.documentDBVersion is empty after upgrade"
+          echo "❌ status.schemaVersion is empty after upgrade"
           exit 1
         fi
         
@@ -338,8 +338,8 @@ jobs:
         NEW_GATEWAY="${{ env.GATEWAY_IMAGE }}"
         
         # Record state before rollback
-        VERSION_BEFORE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBVersion}')
-        echo "DocumentDB version before extension rollback: $VERSION_BEFORE"
+        VERSION_BEFORE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.schemaVersion}')
+        echo "DocumentDB schema version before extension rollback: $VERSION_BEFORE"
         
         EVENTS_BEFORE=$(kubectl get events -n $DB_NS --field-selector reason=ExtensionRollback --no-headers 2>/dev/null | wc -l || echo "0")
         echo "ExtensionRollback events before: $EVENTS_BEFORE"
@@ -387,9 +387,9 @@ jobs:
         fi
         
         # Verify schema version preserved (ALTER EXTENSION UPDATE skipped)
-        VERSION_AFTER=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBVersion}')
-        echo "DocumentDB version before rollback: $VERSION_BEFORE"
-        echo "DocumentDB version after rollback: $VERSION_AFTER"
+        VERSION_AFTER=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.schemaVersion}')
+        echo "DocumentDB schema version before rollback: $VERSION_BEFORE"
+        echo "DocumentDB schema version after rollback: $VERSION_AFTER"
         if [[ "$VERSION_AFTER" == "$VERSION_BEFORE" ]]; then
           echo "✓ Schema version preserved — ALTER EXTENSION UPDATE correctly skipped"
         else
@@ -494,8 +494,8 @@ jobs:
         NEW_GATEWAY="${{ env.GATEWAY_IMAGE }}"
         
         # Record state before gateway rollback
-        VERSION_BEFORE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBVersion}')
-        echo "DocumentDB version before gateway rollback: $VERSION_BEFORE"
+        VERSION_BEFORE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.schemaVersion}')
+        echo "DocumentDB schema version before gateway rollback: $VERSION_BEFORE"
         
         # Rollback only gateway image
         echo ""
@@ -549,9 +549,9 @@ jobs:
         fi
         
         # Verify schema version unchanged (gateway is stateless, no schema impact)
-        VERSION_AFTER=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.documentDBVersion}')
-        echo "DocumentDB version before gateway rollback: $VERSION_BEFORE"
-        echo "DocumentDB version after gateway rollback: $VERSION_AFTER"
+        VERSION_AFTER=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.schemaVersion}')
+        echo "DocumentDB schema version before gateway rollback: $VERSION_BEFORE"
+        echo "DocumentDB schema version after gateway rollback: $VERSION_AFTER"
         if [[ "$VERSION_AFTER" == "$VERSION_BEFORE" ]]; then
           echo "✓ Schema version unchanged — gateway rollback has no schema impact"
         else

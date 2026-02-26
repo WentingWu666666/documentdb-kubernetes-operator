@@ -1009,9 +1009,10 @@ spec:
                         operator:
                           description: |-
                             Operator represents a key's relationship to the value.
-                            Valid operators are Exists and Equal. Defaults to Equal.
+                            Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
                             Exists is equivalent to wildcard for value, so that a pod can
                             tolerate all taints of a particular category.
+                            Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
                           type: string
                         tolerationSeconds:
                           description: |-
@@ -1217,7 +1218,7 @@ spec:
                 default: ghcr.io/cloudnative-pg/postgresql:18-minimal-bookworm
                 description: |-
                   PostgresImage is the container image to use for the PostgreSQL server.
-                  If not specified, defaults to "ghcr.io/cloudnative-pg/postgresql:18-minimal-bookworm".
+                  If not specified, defaults to the last stable PostgreSQL version compatible with DocumentDB.
                 type: string
               resource:
                 description: Resource specifies the storage resources for DocumentDB.
@@ -1356,17 +1357,17 @@ spec:
                 type: string
               documentDBImage:
                 description: DocumentDBImage is the extension image URI currently
-                  applied to the CNPG cluster.
-                type: string
-              documentDBVersion:
-                description: DocumentDBVersion is the currently installed version
-                  of the DocumentDB extension.
+                  applied to the cluster.
                 type: string
               gatewayImage:
                 description: GatewayImage is the gateway sidecar image URI currently
-                  applied to the CNPG cluster.
+                  applied to the cluster.
                 type: string
               localPrimary:
+                type: string
+              schemaVersion:
+                description: SchemaVersion is the currently installed schema version
+                  of the DocumentDB extension.
                 type: string
               status:
                 description: Status reflects the status field from the underlying

@@ -45,7 +45,7 @@ type DocumentDBSpec struct {
 	GatewayImage string `json:"gatewayImage,omitempty"`
 
 	// PostgresImage is the container image to use for the PostgreSQL server.
-	// If not specified, defaults to "ghcr.io/cloudnative-pg/postgresql:18-minimal-bookworm".
+	// If not specified, defaults to the last stable PostgreSQL version compatible with DocumentDB.
 	// +kubebuilder:default="ghcr.io/cloudnative-pg/postgresql:18-minimal-bookworm"
 	// +optional
 	PostgresImage string `json:"postgresImage,omitempty"`
@@ -280,13 +280,13 @@ type DocumentDBStatus struct {
 	TargetPrimary    string `json:"targetPrimary,omitempty"`
 	LocalPrimary     string `json:"localPrimary,omitempty"`
 
-	// DocumentDBVersion is the currently installed version of the DocumentDB extension.
-	DocumentDBVersion string `json:"documentDBVersion,omitempty"`
+	// SchemaVersion is the currently installed schema version of the DocumentDB extension.
+	SchemaVersion string `json:"schemaVersion,omitempty"`
 
-	// DocumentDBImage is the extension image URI currently applied to the CNPG cluster.
+	// DocumentDBImage is the extension image URI currently applied to the cluster.
 	DocumentDBImage string `json:"documentDBImage,omitempty"`
 
-	// GatewayImage is the gateway sidecar image URI currently applied to the CNPG cluster.
+	// GatewayImage is the gateway sidecar image URI currently applied to the cluster.
 	GatewayImage string `json:"gatewayImage,omitempty"`
 
 	// TLS reports gateway TLS provisioning status (Phase 1).

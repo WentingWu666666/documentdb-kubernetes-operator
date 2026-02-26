@@ -1585,7 +1585,7 @@ var _ = Describe("DocumentDB Controller", func() {
 			// Status should reflect the installed version as semver
 			updatedDB := &dbpreview.DocumentDB{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
-			Expect(updatedDB.Status.DocumentDBVersion).To(Equal("0.110.0"))
+			Expect(updatedDB.Status.SchemaVersion).To(Equal("0.110.0"))
 		})
 
 		It("should emit warning event on rollback detection and skip ALTER EXTENSION", func() {
@@ -1657,7 +1657,7 @@ var _ = Describe("DocumentDB Controller", func() {
 			// Status should still reflect the installed version
 			updatedDB := &dbpreview.DocumentDB{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
-			Expect(updatedDB.Status.DocumentDBVersion).To(Equal("0.110.0"))
+			Expect(updatedDB.Status.SchemaVersion).To(Equal("0.110.0"))
 		})
 
 		It("should run ALTER EXTENSION and update status on successful upgrade", func() {
@@ -1728,7 +1728,7 @@ var _ = Describe("DocumentDB Controller", func() {
 			// Status should reflect the upgraded version (default version as semver)
 			updatedDB := &dbpreview.DocumentDB{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
-			Expect(updatedDB.Status.DocumentDBVersion).To(Equal("0.110.0"))
+			Expect(updatedDB.Status.SchemaVersion).To(Equal("0.110.0"))
 		})
 
 		It("should return error when ALTER EXTENSION fails", func() {
@@ -2174,8 +2174,8 @@ var _ = Describe("DocumentDB Controller", func() {
 				Status: dbpreview.DocumentDBStatus{
 					// Images match cluster so updateImageStatus is a no-op
 					DocumentDBImage: "documentdb/documentdb:v1.0.0",
-					// DocumentDBVersion is stale — triggers step 5 status update
-					DocumentDBVersion: "0.109.0",
+					// SchemaVersion is stale — triggers step 5 status update
+					SchemaVersion: "0.109.0",
 				},
 			}
 
@@ -2195,14 +2195,14 @@ var _ = Describe("DocumentDB Controller", func() {
 				Scheme:   scheme,
 				Recorder: recorder,
 				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, _ string) (string, error) {
-					// versions match, but DocumentDBVersion is stale
+					// versions match, but SchemaVersion is stale
 					return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.110-0           \n", nil
 				},
 			}
 
 			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to update DocumentDB status with extension version"))
+			Expect(err.Error()).To(ContainSubstring("failed to update DocumentDB status with schema version"))
 		})
 
 		It("should return error when status update fails after ALTER EXTENSION upgrade", func() {
@@ -2242,7 +2242,7 @@ var _ = Describe("DocumentDB Controller", func() {
 					// Images match cluster so updateImageStatus is a no-op
 					DocumentDBImage: "documentdb/documentdb:v1.0.0",
 					// Version matches installed so step 5 is a no-op
-					DocumentDBVersion: "0.109.0",
+					SchemaVersion: "0.109.0",
 				},
 			}
 
@@ -2274,7 +2274,7 @@ var _ = Describe("DocumentDB Controller", func() {
 
 			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed to update DocumentDB status after extension upgrade"))
+			Expect(err.Error()).To(ContainSubstring("failed to update DocumentDB status after schema upgrade"))
 			Expect(sqlCalls).To(HaveLen(2))
 		})
 	})
