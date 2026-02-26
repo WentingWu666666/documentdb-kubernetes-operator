@@ -551,6 +551,34 @@ runs:
         
         echo "✓ DocumentDB Operator installation completed on ${{ inputs.architecture }}"
 
+    - name: Verify CNPG ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES env is set
+      shell: bash
+      run: |
+        echo "Verifying ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES is set on the CNPG operator deployment..."
+
+        # Find the CNPG controller deployment in cnpg-system namespace
+        CNPG_DEPLOY=$(kubectl get deployments -n cnpg-system -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [[ -z "$CNPG_DEPLOY" ]]; then
+          echo "❌ No deployment found in cnpg-system namespace"
+          kubectl get all -n cnpg-system
+          exit 1
+        fi
+        echo "Found CNPG deployment: $CNPG_DEPLOY"
+
+        # Extract the value of ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES from the deployment
+        ENV_VALUE=$(kubectl get deployment "$CNPG_DEPLOY" -n cnpg-system \
+          -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES")].value}')
+
+        if [[ "$ENV_VALUE" == "true" ]]; then
+          echo "✅ ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES is correctly set to 'true'"
+        else
+          echo "❌ ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES is not set or has unexpected value: '$ENV_VALUE'"
+          echo "Deployment env vars:"
+          kubectl get deployment "$CNPG_DEPLOY" -n cnpg-system \
+            -o jsonpath='{.spec.template.spec.containers[0].env}' | jq . || true
+          exit 1
+        fi
+
     - name: Create DocumentDB credentials secret
       shell: bash
       run: |
