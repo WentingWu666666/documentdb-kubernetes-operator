@@ -71,6 +71,7 @@ jobs:
       DOCUMENTDB_OLD_IMAGE: ghcr.io/guanzhousongmicrosoft/documentdb-pg18:0.109.0
       GATEWAY_IMAGE: ghcr.io/microsoft/documentdb/documentdb-local:16
       GATEWAY_OLD_IMAGE: ghcr.io/microsoft/documentdb/documentdb-local:16 # TODO: update to actual old gateway image when available
+      RELEASED_CHART_VERSION: 'latest'
 
     steps:
     - name: Checkout repository
@@ -121,6 +122,7 @@ jobs:
         documentdb-image: ${{ env.DOCUMENTDB_OLD_IMAGE }}
         gateway-image: ${{ env.GATEWAY_OLD_IMAGE }}
         use-external-images: ${{ github.event_name != 'pull_request' && inputs.image_tag != '' && inputs.image_tag != null }}
+        released-chart-version: ${{ env.RELEASED_CHART_VERSION }}
         github-token: ${{ secrets.GITHUB_TOKEN }}
         repository-owner: ${{ github.repository_owner }}
 
@@ -162,9 +164,189 @@ jobs:
         fi
         rm -f /tmp/pf_output.log
 
-    - name: "Step 1: Upgrade Both Extension and Gateway Images"
+    - name: "Step 1: Operator Control Plane Upgrade (released → built)"
       run: |
-        echo "=== Step 1: Upgrade Both Extension and Gateway Images ==="
+        echo "=== Step 1: Operator Control Plane Upgrade ==="
+        echo "Upgrading operator from released chart to locally built version on ${{ matrix.architecture }}..."
+        
+        ARCH="${{ matrix.architecture }}"
+        
+        # --- Baseline from Released Operator ---
+        echo ""
+        echo "--- Baseline (Released Operator) ---"
+        echo "Helm release info:"
+        helm list -n $OPERATOR_NS
+        
+        RELEASED_OPERATOR_IMAGE=$(kubectl get deployment documentdb-operator -n $OPERATOR_NS -o jsonpath='{.spec.template.spec.containers[0].image}')
+        echo "Released operator image: $RELEASED_OPERATOR_IMAGE"
+        
+        # Check CNPG ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES is NOT set on released version
+        CNPG_DEPLOY=$(kubectl get deployments -n cnpg-system -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        echo "CNPG deployment: $CNPG_DEPLOY"
+        
+        PRE_UPGRADE_ENV=$(kubectl get deployment "$CNPG_DEPLOY" -n cnpg-system \
+          -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES")].value}' 2>/dev/null || echo "")
+        echo "ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES before upgrade: '${PRE_UPGRADE_ENV:-<not set>}'"
+        
+        if [[ -n "$PRE_UPGRADE_ENV" ]]; then
+          echo "⚠️ ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES is already set on released version (value: $PRE_UPGRADE_ENV)"
+        else
+          echo "✓ ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES is not set on released version (expected)"
+        fi
+        
+        # Record DB pod state before operator upgrade
+        echo ""
+        echo "DB pods before operator upgrade:"
+        kubectl get pods -n $DB_NS -l cnpg.io/cluster=$DB_NAME -o wide
+        PRE_UPGRADE_UIDS=$(kubectl get pods -n $DB_NS -l cnpg.io/cluster=$DB_NAME -o jsonpath='{.items[*].metadata.uid}')
+        echo "Pod UIDs: $PRE_UPGRADE_UIDS"
+        
+        # --- Prepare Built Chart ---
+        echo ""
+        echo "--- Preparing Built Chart ---"
+        CHART_ARTIFACT_DIR="./artifacts/build-helm-chart-${ARCH}"
+        EXPECTED_CHART_FILE="$CHART_ARTIFACT_DIR/documentdb-chart-${{ env.CHART_VERSION }}-${ARCH}.tgz"
+        
+        if [ ! -f "$EXPECTED_CHART_FILE" ]; then
+          echo "❌ Built Helm chart not found: $EXPECTED_CHART_FILE"
+          ls -la "$CHART_ARTIFACT_DIR/" || echo "Chart artifact directory not found"
+          exit 1
+        fi
+        
+        echo "Extracting built chart: $EXPECTED_CHART_FILE"
+        rm -rf ./documentdb-chart
+        tar -xzf "$EXPECTED_CHART_FILE"
+        
+        echo "Built chart version:"
+        cat ./documentdb-chart/Chart.yaml | grep -E "^(version|appVersion):"
+        
+        # --- Perform Helm Upgrade ---
+        echo ""
+        echo "--- Performing Helm Upgrade ---"
+        LOCAL_IMAGE_TAG="${{ env.IMAGE_TAG }}-${ARCH}"
+        echo "Upgrading with image tag: $LOCAL_IMAGE_TAG"
+        
+        helm upgrade documentdb-operator ./documentdb-chart \
+          --namespace $OPERATOR_NS \
+          --set documentDbVersion="$LOCAL_IMAGE_TAG" \
+          --set image.documentdbk8soperator.tag="$LOCAL_IMAGE_TAG" \
+          --set image.sidecarinjector.tag="$LOCAL_IMAGE_TAG" \
+          --wait --timeout=15m
+        
+        echo "Helm upgrade completed. Release info:"
+        helm list -n $OPERATOR_NS
+        
+        # --- Verify Upgraded Operator ---
+        echo ""
+        echo "--- Verifying Upgraded Operator ---"
+        kubectl wait --for=condition=Available deployment/documentdb-operator -n $OPERATOR_NS --timeout=300s
+        
+        UPGRADED_OPERATOR_IMAGE=$(kubectl get deployment documentdb-operator -n $OPERATOR_NS -o jsonpath='{.spec.template.spec.containers[0].image}')
+        echo "Upgraded operator image: $UPGRADED_OPERATOR_IMAGE"
+        
+        if [[ "$UPGRADED_OPERATOR_IMAGE" == "$RELEASED_OPERATOR_IMAGE" ]]; then
+          echo "❌ Operator image did not change after upgrade"
+          exit 1
+        fi
+        echo "✓ Operator image changed: $RELEASED_OPERATOR_IMAGE → $UPGRADED_OPERATOR_IMAGE"
+        
+        # --- Verify ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES ---
+        echo ""
+        echo "--- Verifying ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES ---"
+        
+        # Wait for CNPG deployment to be updated
+        echo "Waiting for CNPG deployment to roll out..."
+        kubectl rollout status deployment "$CNPG_DEPLOY" -n cnpg-system --timeout=300s
+        
+        POST_UPGRADE_ENV=$(kubectl get deployment "$CNPG_DEPLOY" -n cnpg-system \
+          -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES")].value}' 2>/dev/null || echo "")
+        echo "ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES after upgrade: '${POST_UPGRADE_ENV:-<not set>}'"
+        
+        if [[ "$POST_UPGRADE_ENV" == "true" ]]; then
+          echo "✅ ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES correctly set to 'true' after upgrade"
+        else
+          echo "❌ ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES not set to 'true' after upgrade (value: '${POST_UPGRADE_ENV:-<not set>}')"
+          echo "CNPG deployment env vars:"
+          kubectl get deployment "$CNPG_DEPLOY" -n cnpg-system \
+            -o jsonpath='{.spec.template.spec.containers[0].env}' | jq . || true
+          exit 1
+        fi
+        
+        # --- Verify DB Pod Stability ---
+        echo ""
+        echo "--- Verifying DB Pod Stability ---"
+        kubectl get pods -n $DB_NS -l cnpg.io/cluster=$DB_NAME -o wide
+        POST_UPGRADE_UIDS=$(kubectl get pods -n $DB_NS -l cnpg.io/cluster=$DB_NAME -o jsonpath='{.items[*].metadata.uid}')
+        echo "Pod UIDs after upgrade: $POST_UPGRADE_UIDS"
+        
+        if [[ "$PRE_UPGRADE_UIDS" == "$POST_UPGRADE_UIDS" ]]; then
+          echo "✓ DB pod UIDs unchanged — operator upgrade did not restart DB pods"
+        else
+          echo "⚠️ DB pod UIDs changed — pods may have been restarted during operator upgrade"
+          echo "  Before: $PRE_UPGRADE_UIDS"
+          echo "  After:  $POST_UPGRADE_UIDS"
+        fi
+        
+        # --- Verify Cluster Health ---
+        echo ""
+        echo "--- Verifying Cluster Health ---"
+        timeout 300 bash -c '
+        while true; do
+          DB_STATUS=$(kubectl get documentdb '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.status}" 2>/dev/null)
+          CLUSTER_STATUS=$(kubectl get cluster '$DB_NAME' -n '$DB_NS' -o jsonpath="{.status.phase}" 2>/dev/null)
+          echo "DocumentDB status: $DB_STATUS, CNPG phase: $CLUSTER_STATUS"
+          if [[ "$DB_STATUS" == "Cluster in healthy state" && "$CLUSTER_STATUS" == "Cluster in healthy state" ]]; then
+            echo "✓ Cluster is healthy after operator upgrade"
+            break
+          fi
+          sleep 10
+        done
+        '
+        
+        echo ""
+        echo "✅ Step 1 passed: Operator control plane upgraded successfully"
+        echo "  Operator: $RELEASED_OPERATOR_IMAGE → $UPGRADED_OPERATOR_IMAGE"
+        echo "  ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES: '${PRE_UPGRADE_ENV:-<not set>}' → '$POST_UPGRADE_ENV'"
+
+    - name: Setup port forwarding for operator upgrade verification
+      uses: ./.github/actions/setup-port-forwarding
+      with:
+        namespace: ${{ env.DB_NS }}
+        cluster-name: ${{ env.DB_NAME }}
+        port: ${{ env.DB_PORT }}
+        architecture: ${{ matrix.architecture }}
+        test-type: 'comprehensive'
+
+    - name: Verify data persistence after operator upgrade
+      run: |
+        echo "=== Data Persistence: Verifying after operator upgrade ==="
+        mongosh 127.0.0.1:$DB_PORT \
+          -u $DB_USERNAME \
+          -p $DB_PASSWORD \
+          --authenticationMechanism SCRAM-SHA-256 \
+          --tls \
+          --tlsAllowInvalidCertificates \
+          --eval '
+            db = db.getSiblingDB("upgrade_test_db");
+            var count = db.test_collection.countDocuments();
+            assert(count === 2, "Expected 2 documents but found " + count + " after operator upgrade");
+            print("✓ All " + count + " documents persisted through operator upgrade");
+          '
+        echo "✓ Data persistence verified after operator upgrade"
+
+    - name: Cleanup port forwarding after operator upgrade verification
+      if: always()
+      run: |
+        if [ -f /tmp/pf_pid ]; then
+          PF_PID=$(cat /tmp/pf_pid)
+          kill $PF_PID 2>/dev/null || true
+          rm -f /tmp/pf_pid
+        fi
+        rm -f /tmp/pf_output.log
+
+    - name: "Step 2: Upgrade Both Extension and Gateway Images"
+      run: |
+        echo "=== Step 2: Upgrade Both Extension and Gateway Images ==="
         echo "Testing simultaneous extension + gateway upgrade on ${{ matrix.architecture }}..."
         
         OLD_EXTENSION="${{ env.DOCUMENTDB_OLD_IMAGE }}"
@@ -288,7 +470,7 @@ jobs:
         fi
         
         echo ""
-        echo "✅ Step 1 passed: Both images upgraded successfully"
+        echo "✅ Step 2 passed: Both images upgraded successfully"
         echo "  Extension: $OLD_EXTENSION → $NEW_EXTENSION"
         echo "  Gateway:   $OLD_GATEWAY → $NEW_GATEWAY"
 
@@ -328,9 +510,9 @@ jobs:
         fi
         rm -f /tmp/pf_output.log
 
-    - name: "Step 2: Rollback Extension Image (gateway stays at new version)"
+    - name: "Step 3: Rollback Extension Image (gateway stays at new version)"
       run: |
-        echo "=== Step 2: Rollback Extension Image ==="
+        echo "=== Step 3: Rollback Extension Image ==="
         echo "Rolling back extension image while keeping gateway at new version..."
         
         OLD_EXTENSION="${{ env.DOCUMENTDB_OLD_IMAGE }}"
@@ -444,7 +626,7 @@ jobs:
         fi
         
         echo ""
-        echo "✅ Step 2 passed: Extension rolled back, gateway unchanged"
+        echo "✅ Step 3 passed: Extension rolled back, gateway unchanged"
         echo "  Extension: $NEW_EXTENSION → $OLD_EXTENSION (rolled back)"
         echo "  Gateway:   $NEW_GATEWAY (unchanged)"
 
@@ -484,9 +666,9 @@ jobs:
         fi
         rm -f /tmp/pf_output.log
 
-    - name: "Step 3: Rollback Gateway Image (extension stays at old version)"
+    - name: "Step 4: Rollback Gateway Image (extension stays at old version)"
       run: |
-        echo "=== Step 3: Rollback Gateway Image ==="
+        echo "=== Step 4: Rollback Gateway Image ==="
         echo "Rolling back gateway image while keeping extension at old version..."
         
         OLD_EXTENSION="${{ env.DOCUMENTDB_OLD_IMAGE }}"
@@ -576,7 +758,7 @@ jobs:
         fi
         
         echo ""
-        echo "✅ Step 3 passed: Gateway rolled back, extension unchanged"
+        echo "✅ Step 4 passed: Gateway rolled back, extension unchanged"
         echo "  Extension: $OLD_EXTENSION (unchanged)"
         echo "  Gateway:   $NEW_GATEWAY → $OLD_GATEWAY (rolled back)"
 
@@ -637,6 +819,13 @@ jobs:
         echo "- **New Gateway Image**: ${{ env.GATEWAY_IMAGE }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Image Tag**: ${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Chart Version**: ${{ env.CHART_VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Released Chart Version**: ${{ env.RELEASED_CHART_VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Test Steps:" >> $GITHUB_STEP_SUMMARY
+        echo "- Step 1: Operator control plane upgrade (released → built)" >> $GITHUB_STEP_SUMMARY
+        echo "- Step 2: Upgrade both extension and gateway images" >> $GITHUB_STEP_SUMMARY
+        echo "- Step 3: Rollback extension image" >> $GITHUB_STEP_SUMMARY
+        echo "- Step 4: Rollback gateway image" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
         if [[ "${{ job.status }}" == "success" ]]; then
