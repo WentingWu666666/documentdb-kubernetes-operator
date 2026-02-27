@@ -120,19 +120,16 @@ jobs:
         fi
         echo "Resolved released chart version: $RESOLVED_VERSION"
         
-        # Check if the CRD in the released chart has postgresImage field
-        # This is the definitive check — postgresImage means the operator supports ImageVolume mode
-        CHART_VERSION_FLAG=""
-        if [[ "$CHART_VERSION" != "latest" ]]; then
-          CHART_VERSION_FLAG="--version $CHART_VERSION"
-        fi
-        CRD_OUTPUT=$(helm show crds documentdb/documentdb-operator $CHART_VERSION_FLAG 2>/dev/null || echo "")
-        if echo "$CRD_OUTPUT" | grep -q "postgresImage"; then
-          echo "CRD contains postgresImage field → operator supports ImageVolume mode"
-          USE_COMBINED=false
-        else
-          echo "CRD does not contain postgresImage field → combined image required"
+        # Determine image mode based on release version
+        # Versions <= 0.1.3 use combined image (no ImageVolume support)
+        # Versions > 0.1.3 use extension image (ImageVolume mode)
+        THRESHOLD="0.1.3"
+        if [[ "$(printf '%s\n' "$THRESHOLD" "$RESOLVED_VERSION" | sort -V | head -n1)" == "$RESOLVED_VERSION" ]]; then
+          echo "Released version $RESOLVED_VERSION <= $THRESHOLD → combined image required"
           USE_COMBINED=true
+        else
+          echo "Released version $RESOLVED_VERSION > $THRESHOLD → extension image supported"
+          USE_COMBINED=false
         fi
         
         # Set the initial image based on determination
