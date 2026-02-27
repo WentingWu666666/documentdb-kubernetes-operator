@@ -103,6 +103,7 @@ jobs:
         echo "- **Old Gateway Image**: \`${{ env.GATEWAY_OLD_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **New Gateway Image**: \`${{ env.GATEWAY_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
 
+    # TODO: Remove this step once release versions > 0.1.3 
     - name: Determine initial DocumentDB image
       run: |
         echo "=== Determining DocumentDB image for initial deployment ==="
@@ -114,7 +115,11 @@ jobs:
         # Resolve the released chart version
         CHART_VERSION="${{ env.RELEASED_CHART_VERSION }}"
         if [[ "$CHART_VERSION" == "latest" ]]; then
-          RESOLVED_VERSION=$(helm search repo documentdb/documentdb-operator -o json | jq -r '.[0].version')
+          RESOLVED_VERSION=$(helm search repo documentdb/documentdb-operator -o json | jq -r '.[0].version' 2>/dev/null || echo "")
+          if [[ -z "$RESOLVED_VERSION" || "$RESOLVED_VERSION" == "null" ]]; then
+            echo "⚠️ Failed to resolve chart version from Helm repo, defaulting to threshold"
+            RESOLVED_VERSION="0.1.3"
+          fi
         else
           RESOLVED_VERSION="$CHART_VERSION"
         fi
@@ -133,7 +138,7 @@ jobs:
         fi
         
         # Persist USE_COMBINED for later steps
-        # TODO: Remove once released version > 0.1.3
+        # TODO: Remove once we deprecate combined mode
         echo "USE_COMBINED=$USE_COMBINED" >> $GITHUB_ENV
         
         # Set the initial image based on determination
@@ -226,20 +231,6 @@ jobs:
         RELEASED_OPERATOR_IMAGE=$(kubectl get deployment documentdb-operator -n $OPERATOR_NS -o jsonpath='{.spec.template.spec.containers[0].image}')
         echo "Released operator image: $RELEASED_OPERATOR_IMAGE"
         
-        # Check CNPG ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES is NOT set on released version
-        CNPG_DEPLOY=$(kubectl get deployments -n cnpg-system -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-        echo "CNPG deployment: $CNPG_DEPLOY"
-        
-        PRE_UPGRADE_ENV=$(kubectl get deployment "$CNPG_DEPLOY" -n cnpg-system \
-          -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES")].value}' 2>/dev/null || echo "")
-        echo "ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES before upgrade: '${PRE_UPGRADE_ENV:-<not set>}'"
-        
-        if [[ -n "$PRE_UPGRADE_ENV" ]]; then
-          echo "⚠️ ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES is already set on released version (value: $PRE_UPGRADE_ENV)"
-        else
-          echo "✓ ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES is not set on released version (expected)"
-        fi
-        
         # Record DB pod state before operator upgrade
         echo ""
         echo "DB pods before operator upgrade:"
@@ -296,28 +287,6 @@ jobs:
         fi
         echo "✓ Operator image changed: $RELEASED_OPERATOR_IMAGE → $UPGRADED_OPERATOR_IMAGE"
         
-        # --- Verify ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES ---
-        echo ""
-        echo "--- Verifying ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES ---"
-        
-        # Wait for CNPG deployment to be updated
-        echo "Waiting for CNPG deployment to roll out..."
-        kubectl rollout status deployment "$CNPG_DEPLOY" -n cnpg-system --timeout=300s
-        
-        POST_UPGRADE_ENV=$(kubectl get deployment "$CNPG_DEPLOY" -n cnpg-system \
-          -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES")].value}' 2>/dev/null || echo "")
-        echo "ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES after upgrade: '${POST_UPGRADE_ENV:-<not set>}'"
-        
-        if [[ "$POST_UPGRADE_ENV" == "true" ]]; then
-          echo "✅ ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES correctly set to 'true' after upgrade"
-        else
-          echo "❌ ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES not set to 'true' after upgrade (value: '${POST_UPGRADE_ENV:-<not set>}')"
-          echo "CNPG deployment env vars:"
-          kubectl get deployment "$CNPG_DEPLOY" -n cnpg-system \
-            -o jsonpath='{.spec.template.spec.containers[0].env}' | jq . || true
-          exit 1
-        fi
-        
         # --- Verify DB Pod Stability ---
         echo ""
         echo "--- Verifying DB Pod Stability ---"
@@ -352,7 +321,6 @@ jobs:
         echo ""
         echo "✅ Step 1 passed: Operator control plane upgraded successfully"
         echo "  Operator: $RELEASED_OPERATOR_IMAGE → $UPGRADED_OPERATOR_IMAGE"
-        echo "  ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES: '${PRE_UPGRADE_ENV:-<not set>}' → '$POST_UPGRADE_ENV'"
 
     - name: Setup port forwarding for operator upgrade verification
       uses: ./.github/actions/setup-port-forwarding
@@ -529,16 +497,16 @@ jobs:
         echo "=== Step 2: Upgrade Both Extension and Gateway Images ==="
         echo "Testing simultaneous extension + gateway upgrade on ${{ matrix.architecture }}..."
         
-        INITIAL_IMAGE="${{ env.DOCUMENTDB_INITIAL_IMAGE }}"
+        OLD_EXTENSION="${{ env.DOCUMENTDB_OLD_IMAGE }}"
         NEW_EXTENSION="${{ env.DOCUMENTDB_IMAGE }}"
         OLD_GATEWAY="${{ env.GATEWAY_OLD_IMAGE }}"
         NEW_GATEWAY="${{ env.GATEWAY_IMAGE }}"
         
-        # Verify baseline: cluster deployed with initial images
+        # Verify baseline: cluster deployed with old images
         CURRENT_EXTENSION=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.spec.documentDBImage}')
         echo "Current extension image: $CURRENT_EXTENSION"
-        if [[ "$CURRENT_EXTENSION" != "$INITIAL_IMAGE" ]]; then
-          echo "❌ Expected initial image $INITIAL_IMAGE but found $CURRENT_EXTENSION"
+        if [[ "$CURRENT_EXTENSION" != "$OLD_EXTENSION" ]]; then
+          echo "❌ Expected old extension image $OLD_EXTENSION but found $CURRENT_EXTENSION"
           exit 1
         fi
         
@@ -548,17 +516,29 @@ jobs:
           echo "❌ Expected old gateway image $OLD_GATEWAY but found $CURRENT_GATEWAY"
           exit 1
         fi
-        echo "✓ Cluster deployed with initial images"
+        echo "✓ Cluster deployed with old images"
         
-        # Record version before upgrade
-        # Note: schemaVersion may be empty when using combined image with older operator versions.
+        # Record and verify version before upgrade
         VERSION_BEFORE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.status.schemaVersion}')
-        echo "DocumentDB schema version before upgrade: ${VERSION_BEFORE:-<empty>}"
+        echo "DocumentDB schema version before upgrade: $VERSION_BEFORE"
+
+        # The image tag (e.g., "0.110.0") now matches status.schemaVersion directly
+        OLD_VERSION_TAG="${OLD_EXTENSION##*:}"
+        EXPECTED_VERSION_BEFORE="$OLD_VERSION_TAG"
+        if [[ -z "$VERSION_BEFORE" ]]; then
+          echo "❌ status.schemaVersion is empty before upgrade"
+          exit 1
+        fi
+        if [[ "$VERSION_BEFORE" != "$EXPECTED_VERSION_BEFORE" ]]; then
+          echo "❌ Expected version $EXPECTED_VERSION_BEFORE before upgrade but found $VERSION_BEFORE"
+          exit 1
+        fi
+        echo "✓ DocumentDB version matches expected $EXPECTED_VERSION_BEFORE before upgrade"
         
         # Patch both images simultaneously
         echo ""
         echo "Upgrading both images..."
-        echo "  Extension: $INITIAL_IMAGE → $NEW_EXTENSION"
+        echo "  Extension: $OLD_EXTENSION → $NEW_EXTENSION"
         echo "  Gateway:   $OLD_GATEWAY → $NEW_GATEWAY"
         kubectl patch documentdb $DB_NAME -n $DB_NS --type='merge' \
           -p "{\"spec\":{\"documentDBImage\":\"$NEW_EXTENSION\",\"gatewayImage\":\"$NEW_GATEWAY\"}}"
@@ -639,7 +619,7 @@ jobs:
         
         echo ""
         echo "✅ Step 2 passed: Both images upgraded successfully"
-        echo "  Extension: $INITIAL_IMAGE → $NEW_EXTENSION"
+        echo "  Extension: $OLD_EXTENSION → $NEW_EXTENSION"
         echo "  Gateway:   $OLD_GATEWAY → $NEW_GATEWAY"
 
     - name: Setup port forwarding for upgrade verification
