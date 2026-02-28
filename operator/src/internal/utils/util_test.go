@@ -384,28 +384,18 @@ func TestGetDocumentDBServiceDefinition_CNPGLabels(t *testing.T) {
 
 func TestGetDocumentDBImageForInstance(t *testing.T) {
 	tests := []struct {
-		name           string
-		documentdb     *dbpreview.DocumentDB
-		useImageVolume bool
-		expected       string
+		name       string
+		documentdb *dbpreview.DocumentDB
+		expected   string
 	}{
 		// Priority 1: spec.DocumentDBImage overrides everything
 		{
-			name: "custom image overrides feature gate in ImageVolume mode",
+			name: "custom image overrides feature gate",
 			documentdb: &dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{
 				DocumentDBImage: "custom-registry/custom-image:v1",
 				FeatureGates:    map[string]bool{dbpreview.FeatureGateChangeStreams: true},
 			}},
-			useImageVolume: true,
-			expected:       "custom-registry/custom-image:v1",
-		},
-		{
-			name: "custom image overrides default in combined mode",
-			documentdb: &dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{
-				DocumentDBImage: "custom-registry/documentdb:v2.0.0",
-			}},
-			useImageVolume: false,
-			expected:       "custom-registry/documentdb:v2.0.0",
+			expected: "custom-registry/custom-image:v1",
 		},
 
 		// Priority 2: ChangeStreams feature gate
@@ -414,36 +404,27 @@ func TestGetDocumentDBImageForInstance(t *testing.T) {
 			documentdb: &dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{
 				FeatureGates: map[string]bool{dbpreview.FeatureGateChangeStreams: true},
 			}},
-			useImageVolume: true,
-			expected:       CHANGESTREAM_DOCUMENTDB_IMAGE,
+			expected: CHANGESTREAM_DOCUMENTDB_IMAGE,
 		},
 		{
 			name: "ChangeStreams explicitly disabled falls through to default",
 			documentdb: &dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{
 				FeatureGates: map[string]bool{dbpreview.FeatureGateChangeStreams: false},
 			}},
-			useImageVolume: true,
-			expected:       DEFAULT_DOCUMENTDB_IMAGE,
+			expected: DEFAULT_DOCUMENTDB_IMAGE,
 		},
 
-		// Priority 3: mode-appropriate default (no overrides)
+		// Priority 3: default image (no overrides)
 		{
-			name:           "default ImageVolume mode image when no overrides",
-			documentdb:     &dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{}},
-			useImageVolume: true,
-			expected:       DEFAULT_DOCUMENTDB_IMAGE,
-		},
-		{
-			name:           "default combined mode image when no overrides",
-			documentdb:     &dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{}},
-			useImageVolume: false,
-			expected:       DEFAULT_COMBINED_DOCUMENTDB_IMAGE,
+			name:       "default image when no overrides",
+			documentdb: &dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{}},
+			expected:   DEFAULT_DOCUMENTDB_IMAGE,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := GetDocumentDBImageForInstance(tt.documentdb, tt.useImageVolume)
+			result := GetDocumentDBImageForInstance(tt.documentdb)
 			if result != tt.expected {
 				t.Errorf("GetDocumentDBImageForInstance() = %q, expected %q", result, tt.expected)
 			}

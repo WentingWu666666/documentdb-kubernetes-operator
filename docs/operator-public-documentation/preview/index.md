@@ -17,10 +17,8 @@ Follow these steps to install the operator, deploy a DocumentDB cluster, and con
 
 - [Helm](https://helm.sh/docs/intro/install/) installed.
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/) installed.
-- A local Kubernetes cluster such as [minikube](https://minikube.sigs.k8s.io/docs/start/), or [kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) (v0.31+) installed. You are free to use any other Kubernetes cluster, but that's not a requirement for this quickstart.
-- Install [mongosh](https://www.mongodb.com/docs/mongodb-shell/install/) to connect to the DocumentDB cluster.
-
-> **Kubernetes version:** **Kubernetes 1.35+** is recommended. The operator uses the [ImageVolume](https://kubernetes.io/docs/concepts/storage/volumes/#image) feature (GA in K8s 1.35) to mount the DocumentDB extension. On older clusters the operator falls back to a combined image automatically, but support for Kubernetes < 1.35 will be removed in a future release.
+- A **Kubernetes 1.35+** cluster. The operator uses the [ImageVolume](https://kubernetes.io/docs/concepts/storage/volumes/#image) feature (GA in K8s 1.35) to mount the DocumentDB extension. A local cluster such as [minikube](https://minikube.sigs.k8s.io/docs/start/) or [kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) (v0.31+) works for this quickstart.
+- [mongosh](https://www.mongodb.com/docs/mongodb-shell/install/) installed to connect to the DocumentDB cluster.
 
 ### Start a local Kubernetes cluster
 
