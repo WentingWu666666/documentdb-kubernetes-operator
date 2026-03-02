@@ -3413,7 +3413,9 @@ var _ = Describe("DocumentDB Controller", func() {
 
 	Describe("SetupWithManager", func() {
 		It("should initialize SQLExecutor before manager registration", func() {
-			reconciler := &DocumentDBReconciler{}
+			reconciler := &DocumentDBReconciler{
+				Clientset: kubefake.NewSimpleClientset(),
+			}
 
 			// Passing nil manager: initialization runs first, then builder fails
 			err := reconciler.SetupWithManager(nil)
@@ -3421,6 +3423,13 @@ var _ = Describe("DocumentDB Controller", func() {
 
 			// Verify defaults were initialized
 			Expect(reconciler.SQLExecutor).ToNot(BeNil())
+		})
+
+		It("should return error when Clientset is nil and no custom SQLExecutor is set", func() {
+			reconciler := &DocumentDBReconciler{}
+			err := reconciler.SetupWithManager(nil)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("Clientset must be configured"))
 		})
 
 		It("should not override pre-set SQLExecutor", func() {
@@ -3588,6 +3597,16 @@ var _ = Describe("DocumentDB Controller", func() {
 			Expect(reconciler.validateK8sVersion()).To(Succeed())
 		})
 
+		It("should return nil for future major versions (e.g. K8s 2.0)", func() {
+			clientset := kubefake.NewSimpleClientset()
+			fakeDisc, ok := clientset.Discovery().(*fakediscovery.FakeDiscovery)
+			Expect(ok).To(BeTrue())
+			fakeDisc.FakedServerVersion = &version.Info{Major: "2", Minor: "0"}
+
+			reconciler := &DocumentDBReconciler{Clientset: clientset}
+			Expect(reconciler.validateK8sVersion()).To(Succeed())
+		})
+
 		It("should skip validation when Clientset is nil", func() {
 			reconciler := &DocumentDBReconciler{Clientset: nil}
 			Expect(reconciler.validateK8sVersion()).To(Succeed())
@@ -3627,6 +3646,18 @@ var _ = Describe("DocumentDB Controller", func() {
 			err := reconciler.validateK8sVersion()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse"))
+		})
+
+		It("should return error when major version is not a number", func() {
+			clientset := kubefake.NewSimpleClientset()
+			fakeDisc, ok := clientset.Discovery().(*fakediscovery.FakeDiscovery)
+			Expect(ok).To(BeTrue())
+			fakeDisc.FakedServerVersion = &version.Info{Major: "abc", Minor: "35"}
+
+			reconciler := &DocumentDBReconciler{Clientset: clientset}
+			err := reconciler.validateK8sVersion()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to parse Kubernetes major version"))
 		})
 	})
 })

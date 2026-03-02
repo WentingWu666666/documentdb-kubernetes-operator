@@ -535,6 +535,9 @@ func documentDBServicePredicate() predicate.Predicate {
 // SetupWithManager sets up the controller with the Manager.
 func (r *DocumentDBReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.SQLExecutor == nil {
+		if r.Clientset == nil {
+			return fmt.Errorf("Clientset must be configured: the default SQLExecutor requires a valid Clientset")
+		}
 		r.SQLExecutor = r.executeSQLCommand
 	}
 
@@ -567,6 +570,17 @@ func (r *DocumentDBReconciler) validateK8sVersion() error {
 		return fmt.Errorf("failed to detect Kubernetes version: %w", err)
 	}
 
+	majorStr := strings.TrimRight(serverVersion.Major, "+")
+	major, err := strconv.Atoi(majorStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse Kubernetes major version %q: %w", serverVersion.Major, err)
+	}
+
+	// Future major versions (>1) are assumed to support ImageVolume.
+	if major > 1 {
+		return nil
+	}
+
 	minorStr := strings.TrimRight(serverVersion.Minor, "+")
 	minor, err := strconv.Atoi(minorStr)
 	if err != nil {
@@ -576,8 +590,8 @@ func (r *DocumentDBReconciler) validateK8sVersion() error {
 	if minor < util.MinK8sMinorVersion {
 		return fmt.Errorf(
 			"kubernetes version %s.%s is not supported: the DocumentDB operator requires Kubernetes 1.%d+ "+
-				"for ImageVolume support (GA in K8s 1.35). Please upgrade your cluster",
-			serverVersion.Major, serverVersion.Minor, util.MinK8sMinorVersion,
+				"for ImageVolume support (GA in K8s 1.%d). Please upgrade your cluster",
+			serverVersion.Major, serverVersion.Minor, util.MinK8sMinorVersion, util.MinK8sMinorVersion,
 		)
 	}
 
