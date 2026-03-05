@@ -120,8 +120,8 @@ This section documents every design decision made, the alternatives considered, 
 **Why**: The OTel sqlquery receiver rejects unknown YAML fields. Adding `x_` fields would break the "directly consumable by OTel Collector" property — the core value proposition of Decision 1. Emission routing is a pgmongo-internal concern that should never cross the OSS boundary.
 
 **Files**:
-- `engine_metrics.yaml` — Pure OTel sqlquery format. Lives in `documentdb/metrics/` (synced to `pgmongo/oss/metrics/`).
-- `sidecar_routing.yaml` — pgmongo-internal. Maps metric names to hot/warm path emission. Lives in `pgmongo/metrics/` only.
+- `engine_metrics.yaml` — Pure OTel sqlquery format. Lives in `documentdb/telemetry/` (synced to `pgmongo/oss/telemetry/`).
+- `sidecar_routing.yaml` — pgmongo-internal. Maps metric names to hot/warm path emission. Lives in `pgmongo/telemetry/` only.
 
 ---
 
@@ -545,7 +545,7 @@ Phase 4: Gateway metrics (blocked until gateway instrumented)
 **For self-hosted users:**
 Three consumption paths:
 1. **Docker-compose quick-start**: Clone repo, run `docker compose up` with full example configs.
-2. **Copy from container image**: `docker cp documentdb:/usr/share/documentdb/metrics/ ./metrics/`
+2. **Copy from container image**: `docker cp documentdb:/usr/share/documentdb/telemetry/ ./telemetry/`
 3. **Download from GitHub**: `curl -O` the specific version tag.
 
 ---
@@ -616,7 +616,7 @@ otelcol-contrib --config=/etc/otel/engine_metrics.yaml \
                 --config=/etc/otelcol-contrib/config.yaml
 ```
 
-**File 1: `engine_metrics.yaml`** (shared, from `documentdb/metrics/`):
+**File 1: `engine_metrics.yaml`** (shared, from `documentdb/telemetry/`):
 ```yaml
 # Shared across ALL deployment modes — queries only
 receivers:
@@ -683,7 +683,7 @@ service:
 
 > **Critical rule**: `engine_metrics.yaml` must NOT define `driver`, `datasource`, or `collection_interval`. The local/deployment config must NOT define `queries`. This separation is what makes the merge work.
 
-**Docker-compose example** (`documentdb/metrics/examples/docker-compose.yaml`):
+**Docker-compose example** (`documentdb/telemetry/examples/docker-compose.yaml`):
 
 ```yaml
 services:
@@ -731,7 +731,7 @@ services:
 ```bash
 # Clone and run — full observability in one command
 git clone https://github.com/documentdb/documentdb.git
-cd documentdb/metrics/examples
+cd documentdb/telemetry/examples
 docker compose up -d
 
 # Access:
@@ -829,7 +829,7 @@ The PR's GUC approach embeds everything (query + routing) in a single string. Ou
 #### Schema
 
 ```yaml
-# pgmongo/metrics/sidecar_routing.yaml
+# pgmongo/telemetry/sidecar_routing.yaml
 # Maps shared metric queries to pgmongo emission paths and runtime behavior.
 # This file is INTERNAL ONLY — never synced to documentdb OSS.
 #
@@ -857,6 +857,7 @@ defaults:
 # Per-query routing rules
 # Keyed by exact metric_name (first metric in each query's metrics[] array)
 routing:
+  # PG built-in — no min_schema_version (always safe)
   - metric_name: "documentdb.db.connections"       # pg_stat_database metrics
     collection_interval: 60s
     query_timeout: 5s
@@ -865,6 +866,7 @@ routing:
     citus_role: coordinator
     replication_role: primary
 
+  # Extension metric — requires schema 0.105-0
   - metric_name: "documentdb.feature.usage"         # feature usage counters
     collection_interval: 60s
     query_timeout: 10s
@@ -872,7 +874,9 @@ routing:
     warm_path_table: PgMongoFeatureUsage
     citus_role: coordinator
     replication_role: primary
+    min_schema_version: "0.105-0"                   # documentdb_api_catalog.feature_usage() added in 105
 
+  # PG built-in — no min_schema_version
   - metric_name: "documentdb.db.connections.by_state"  # per-state connection counts
     collection_interval: 15s
     query_timeout: 3s
@@ -880,6 +884,7 @@ routing:
     citus_role: all
     replication_role: all
 
+  # PG built-in — no min_schema_version
   - metric_name: "documentdb.replication.replay_lag"   # replication lag
     collection_interval: 10s
     query_timeout: 3s
@@ -900,6 +905,7 @@ routing:
 | `citus_role` | enum | `coordinator` | Which Citus node roles execute this query: `coordinator`, `worker`, `all`. | `citus_role` |
 | `replication_role` | enum | `primary` | Which replication roles execute this query: `primary`, `standby`, `all`. | `replication_role` |
 | `disabled` | bool | `false` | If `true`, skip this metric group. Useful for emergency shutoff without removing the rule. | `disabled` |
+| `min_schema_version` | string | — | Minimum extension schema version required. Omit for PG built-in queries (always safe). Build-time filter skips queries where `min_schema_version > target_schema`. See Decision 33. | N/A (new) |
 
 #### Decision 30: Unmatched Metrics Behavior
 
@@ -977,9 +983,10 @@ disabled: true in routing is the ONLY way     → to suppress a metric in pgmong
               │  1. Get first    │
               │     metric_name  │
               │  2. Match routing│
-              │  3. Check role   │
-              │  4. Execute SQL  │
-              │  5. Emit to      │
+              │  3. Version gate │
+              │  4. Check role   │
+              │  5. Execute SQL  │
+              │  6. Emit to      │
               │     hot/warm     │
               └──────────────────┘
 ```
@@ -989,8 +996,9 @@ disabled: true in routing is the ONLY way     → to suppress a metric in pgmong
 2. Look up that exact `metric_name` in `routing[].metric_name` (hash map — O(1), no ordering ambiguity).
 3. **If no rule matches, apply `defaults`** (Decision 30 — emit with defaults, not skip).
 4. If the resolved config has `disabled: true`, skip this query entirely.
-5. Check `citus_role` and `replication_role` against current node — skip if not applicable.
-6. Execute SQL with `query_timeout`. On success, emit via `emit_to` targets.
+5. **Version gate** (Decision 33): If `min_schema_version` is set and exceeds current extension schema version, skip this query (log at debug level).
+6. Check `citus_role` and `replication_role` against current node — skip if not applicable.
+7. Execute SQL with `query_timeout`. On success, emit via `emit_to` targets.
 
 #### Mapping from PR GUC Format to Two-File Format
 
@@ -1010,6 +1018,7 @@ Our two-file approach splits this:
 | `citus_role` | `sidecar_routing.yaml` → `routing[].citus_role` | pgmongo-specific (Citus sharding) — not applicable to OSS single-node |
 | `replication_role` | `sidecar_routing.yaml` → `routing[].replication_role` | pgmongo-specific (HA topology) — OSS has its own HA via CNPG |
 | `disabled` | `sidecar_routing.yaml` → `routing[].disabled` | Operational toggle, pgmongo-internal |
+| N/A (new) | `sidecar_routing.yaml` → `routing[].min_schema_version` | Version gating for binary↔schema gap (Decision 33) |
 
 #### GUC Coexistence: Routing Config vs. Runtime GUC Overrides
 
@@ -1111,6 +1120,9 @@ public class RoutingRule
     public string ReplicationRole { get; set; }
     
     public bool Disabled { get; set; }
+    
+    [YamlMember(Alias = "min_schema_version")]
+    public string MinSchemaVersion { get; set; }  // "0.108-0" — null = PG built-in, always safe
 }
 ```
 
@@ -1118,7 +1130,7 @@ public class RoutingRule
 
 | Dimension | GUC-only (PR approach) | File + GUC (our approach) |
 |-----------|----------------------|---------------------------|
-| **Version control** | GUCs in `postgresql.conf` — not in app repo | `sidecar_routing.yaml` in `pgmongo/metrics/` — version-controlled |
+| **Version control** | GUCs in `postgresql.conf` — not in app repo | `sidecar_routing.yaml` in `pgmongo/telemetry/` — version-controlled |
 | **Shared config** | Query embedded in GUC string — can't share with OTel | Queries in `engine_metrics.yaml` — shared across deployments |
 | **Runtime changes** | ✅ `ALTER SYSTEM` + `pg_reload_conf()` | File: watch + reload. GUC override: future v2 |
 | **Discovery** | ✅ `pg_settings WHERE name LIKE 'pgmongo_metrics.%'` | File is explicit — no discovery needed |
@@ -1126,6 +1138,153 @@ public class RoutingRule
 | **Multi-environment** | Must set GUCs per environment | File delivered with image — consistent |
 
 **Answer**: GUC-only works but loses the shared-config-with-OSS goal (query embedded in GUC string can't be reused by OTel Collector). Our approach uses GUCs as an *override layer* (v2), not the primary source.
+
+#### Decision 33: Version Compatibility Strategy (Binary↔Schema Gap)
+
+**Problem**: In pgmongo's upgrade architecture, binary is always one version ahead of schema:
+
+```
+After binary upgrade:   Binary = N, Schema = N-1
+After ALTER EXTENSION:  Binary = N, Schema = N-1  (schema upgrades FROM N-2 TO N-1, not to N)
+After complete_upgrade: Binary = N, Schema = N-1, Cluster = N-1  (cluster version only)
+Next upgrade cycle:     Schema finally reaches N (via N-1 → N during next upgrade)
+```
+
+**Why GUCs don't solve this**: PostgreSQL GUCs are registered via `DefineCustomStringVariable()` in the `.so` library's `_PG_init()` — they're **binary-level**, not schema-level. When binary N loads, ALL N GUCs appear in `pg_settings`, including new ones whose queries reference schema-N objects. But schema is N-1, so those objects don't exist yet. **This is the same problem whether we use GUCs or YAML.**
+
+**Why documentdb (OSS) is unaffected**: In documentdb-k8s and documentdb-local, binary and schema are always in sync (operator controls both). The version gap is purely a pgmongo internal constraint.
+
+**Decision**: **Backward-compatible queries by construction (S1)** — enforced via `min_schema_version` field in the pgmongo-internal routing file.
+
+**How it works (three layers)**:
+
+**Layer 1: `min_schema_version` in routing file (the gating mechanism)**
+
+Each extension-specific metric in `sidecar_routing.yaml` declares the minimum extension schema version its query requires. PG built-in queries (pg_stat_*, citus_stat_*) omit this field — they're always safe.
+
+```yaml
+# sidecar_routing.yaml — version gating examples
+routing:
+  # PG built-in — no version gate needed
+  - metric_name: "documentdb.db.connections"
+    warm_path_table: PgMongoDatabaseStats
+
+  # Extension query — needs schema 0.105-0
+  - metric_name: "documentdb.collection.stats"
+    warm_path_table: CollectionStats
+    min_schema_version: "0.105-0"
+
+  # New in release 110 — needs schema 0.110-0
+  - metric_name: "documentdb.replication.lag_details"
+    warm_path_table: ReplicationLagDetails
+    min_schema_version: "0.110-0"
+```
+
+**Layer 2: Build-time filtering (the enforcement)**
+
+pgmongo's build pipeline filters engine_metrics.yaml to the safe subset:
+
+```python
+# pgmongo build step: filter metrics for version safety
+def filter_metrics_for_schema(metrics, routing, target_schema_version):
+    """
+    target_schema_version = N-1 (the guaranteed schema after this upgrade)
+    """
+    safe_queries = []
+    for query in metrics['queries']:
+        name = query['metrics'][0]['metric_name']
+        rule = routing_map.get(name)
+
+        if rule is None or rule.get('min_schema_version') is None:
+            safe_queries.append(query)  # PG built-in — always safe
+        elif rule['min_schema_version'] <= target_schema_version:
+            safe_queries.append(query)  # Extension query — schema is old enough
+        else:
+            log(f"Skipping {name}: needs schema {rule['min_schema_version']}, "
+                f"target is {target_schema_version}")
+
+    return safe_queries
+```
+
+**Layer 3: CI validation (the safety net)**
+
+CI in the pgmongo repo checks consistency:
+
+```
+CI: metrics-compat-check
+
+1. Parse engine_metrics.yaml + internal_engine_metrics.yaml → all metrics
+2. Parse sidecar_routing.yaml → routing entries
+3. For each extension-specific metric (references documentdb_api.*, helio_api.*, etc.):
+   - MUST have a routing entry with min_schema_version
+   - If missing → ❌ FAIL with message:
+     "Metric 'X' references extension objects but has no min_schema_version
+      in sidecar_routing.yaml. Add: min_schema_version: '0.NNN-0'"
+4. For PG built-in metrics (references only pg_*, citus_stat_*):
+   - Should NOT have min_schema_version (warn if present — unnecessary)
+```
+
+**Extension-specific detection heuristic** (for CI):
+```python
+EXTENSION_SCHEMAS = [
+    "documentdb_api.", "documentdb_api_catalog.", "documentdb_api_internal.",
+    "documentdb_data.", "pgmongo.", "helio_api.", "helio_core.",
+]
+
+def is_extension_specific(sql):
+    return any(schema in sql.lower() for schema in EXTENSION_SCHEMAS)
+```
+
+**Developer workflow** (single PR, good DX):
+
+```
+1. Developer adds new view in schema upgrade script (release N)
+   → pgmongo--N-1--N.sql: CREATE FUNCTION documentdb_api.new_view()...
+
+2. Developer adds metric query in engine_metrics.yaml (same PR)
+   → - metric_name: documentdb.new_metric
+       sql: "SELECT * FROM documentdb_api.new_view()"
+
+3. Developer adds routing entry with version gate (same PR)
+   → sidecar_routing.yaml:
+       - metric_name: "documentdb.new_metric"
+         warm_path_table: NewMetric
+         min_schema_version: "0.N-0"
+
+4. CI validates ✅ (compat entry exists, version matches)
+5. PR merges — all three changes co-located in one PR
+```
+
+**Release effects**:
+
+| Release | Binary | Schema (post-upgrade) | This metric in pgmongo? | This metric in documentdb-k8s? |
+|---------|--------|----------------------|------------------------|-------------------------------|
+| N | N | N-1 | ❌ Filtered (needs N, has N-1) | ✅ Active (no gap) |
+| N+1 | N+1 | N | ✅ Active (needs N, has N) | ✅ Active |
+
+**What gets the one-release lag** (pgmongo only):
+
+| Query Type | Examples | Lag in pgmongo? | Lag in documentdb? |
+|------------|---------|-----------------|-------------------|
+| PG built-in | `pg_stat_activity`, `pg_stat_database` | **None** | **None** |
+| Citus built-in | `citus_stat_statements` | **None** | **None** |
+| Extension (existing objects) | Queries using objects from schema ≤ N-1 | **None** | **None** |
+| Extension (new objects in this release) | Queries using objects added in schema N | **One release** | **None** |
+
+**Why no separate compat file in OSS**: The version gap is pgmongo-specific. `engine_metrics.yaml` in documentdb OSS contains ALL queries — documentdb-k8s and documentdb-local use them all directly (binary = schema, no gap). The `min_schema_version` field lives in `sidecar_routing.yaml` which is already internal-only. **Zero OSS footprint for an internal constraint.**
+
+**Consumer matrix**:
+
+| Consumer | Reads | Version-filters? | Result |
+|----------|-------|-------------------|--------|
+| **documentdb-k8s OTel** | `engine_metrics.yaml` | No — binary = schema | All queries active |
+| **documentdb-local OTel** | `engine_metrics.yaml` | No — binary = schema | All queries active |
+| **pgmongo build** | All 3 files | Yes — `min_schema_version <= N-1` | Safe subset only |
+| **pgmongo CI** | All 3 files | Validates consistency | Catches missing entries |
+
+**Reconsider if**:
+- pgmongo changes its upgrade architecture to bring schema to N (not N-1) during binary upgrade → version gating becomes unnecessary
+- The one-release lag for new extension metrics is unacceptable → use runtime version check as complement (query `SELECT extversion FROM pg_extension` at sidecar startup)
 
 ---
 
@@ -1300,7 +1459,7 @@ service:
 
 ```
 documentdb/                          (OSS repo, public GitHub)
-  metrics/
+  telemetry/
     engine_metrics.yaml              ← Core engine metrics — queries-only (OTel sqlquery format)
     README.md                        ← Schema documentation + how to add metrics + config merge guide
     examples/
@@ -1311,11 +1470,11 @@ documentdb/                          (OSS repo, public GitHub)
       grafana-datasource.yaml        ← Grafana auto-provisioning for Prometheus
 
 pgmongo/                             (internal repo)
-  oss/metrics/                       ← Synced from documentdb (same as above)
+  oss/telemetry/                     ← Synced from documentdb (same as above)
     engine_metrics.yaml
     examples/ ...
-  metrics/                           ← Internal-only (outside OSS boundary)
-    internal_metrics.yaml            ← Extra internal-only metric queries (same OTel format)
+  telemetry/                         ← Internal-only (outside OSS boundary)
+    internal_engine_metrics.yaml     ← Extra internal-only engine metric queries (same OTel format)
     sidecar_routing.yaml             ← Emission routing: hot/warm path, intervals, timeouts, Citus/replication roles (Decision 29)
 
 documentdb-kubernetes-operator/
