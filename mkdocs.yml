@@ -2,8 +2,19 @@ site_name: DocumentDB-Kubernetes-Operator
 repo_url: https://github.com/documentdb/documentdb-kubernetes-operator
 edit_uri: edit/main/docs/operator-public-documentation/
 docs_dir: docs/operator-public-documentation
+# Material theme is required for mike's version selector dropdown;
+# the readthedocs theme does not support it.
 theme:
-  name: readthedocs
+  name: material
+
+# mike (https://github.com/jimporter/mike) enables versioned docs on GitHub Pages.
+# Each release gets a frozen snapshot (e.g., /0.2.0/), and "latest" always points
+# to the most recent release. Unreleased changes on main deploy to /dev/ only.
+# See .github/workflows/deploy_docs.yml for the deployment logic.
+extra:
+  version:
+    provider: mike
+    default: latest
 
 nav:
   - Preview:
