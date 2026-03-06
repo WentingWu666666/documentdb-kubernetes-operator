@@ -15,28 +15,19 @@ This guide covers TLS configuration for the DocumentDB Kubernetes Operator, incl
 
 The DocumentDB operator supports TLS encryption for gateway connections via the `spec.tls` configuration. TLS protects data in transit between clients and the DocumentDB gateway.
 
-### Supported Modes
-
-| Mode | Description | Best For |
-|------|-------------|----------|
-| `Disabled` (default) | No TLS encryption | Development and testing only |
-| `SelfSigned` | Automatic certificates via cert-manager with a self-signed CA | Development, testing, and environments without external PKI (Public Key Infrastructure) |
-| `Provided` | Bring your own certificates (for example, from Azure Key Vault) | Production with centralized certificate management |
-| `CertManager` | Custom cert-manager issuers (for example, Let's Encrypt, corporate CA) | Production with existing cert-manager infrastructure |
-
-### Prerequisites
-
-- **SelfSigned mode**: [cert-manager](https://cert-manager.io/) must be installed in the cluster
-- **CertManager mode**: [cert-manager](https://cert-manager.io/) installed, plus a configured Issuer or ClusterIssuer
-- **Provided mode**: A Kubernetes TLS Secret containing `tls.crt`, `tls.key`, and `ca.crt`
-
 ## Configuration
 
-Select your TLS mode below. Each tab shows the complete YAML configuration and connection instructions.
+Select your TLS mode below. Each tab shows prerequisites, the complete YAML configuration, and connection instructions.
 
-=== "Disabled"
+=== "Disabled (default)"
+
+    **Best for:** Development and testing only
 
     !!! danger "Not recommended for production"
+
+    **Prerequisites:** None
+
+    Disabled mode runs the gateway without TLS encryption. All traffic between clients and the gateway is unencrypted.
 
     ```yaml title="documentdb-tls-disabled.yaml"
     apiVersion: documentdb.io/preview
@@ -63,6 +54,11 @@ Select your TLS mode below. Each tab shows the complete YAML configuration and c
 
 === "SelfSigned"
 
+    **Best for:** Development, testing, and environments without external PKI (Public Key Infrastructure)
+
+    !!! note "Prerequisites"
+        [cert-manager](https://cert-manager.io/) must be installed in the cluster. See [Install cert-manager](../index.md#install-cert-manager) for setup instructions.
+
     SelfSigned mode uses cert-manager to automatically generate and manage a self-signed CA and server certificate. No additional configuration is needed beyond setting the mode.
 
     ```yaml title="documentdb-tls-selfsigned.yaml"
@@ -82,10 +78,7 @@ Select your TLS mode below. Each tab shows the complete YAML configuration and c
           mode: SelfSigned # (1)!
     ```
 
-    1. Requires [cert-manager](https://cert-manager.io/) installed in the cluster. The operator handles CA and certificate generation automatically.
-
-    The operator will:
-
+    The operator handles CA and certificate generation automatically:
     1. Create a self-signed CA Issuer
     2. Generate a CA certificate
     3. Create a server certificate signed by the CA
@@ -105,7 +98,13 @@ Select your TLS mode below. Each tab shows the complete YAML configuration and c
 
 === "CertManager"
 
-    CertManager mode uses a custom cert-manager Issuer or ClusterIssuer to issue certificates. This is ideal for production environments with existing PKI infrastructure.
+    **Best for:** Production with existing cert-manager infrastructure
+
+    !!! note "Prerequisites"
+        [cert-manager](https://cert-manager.io/) must be installed (see [Install cert-manager](../index.md#install-cert-manager)), plus a configured [Issuer or ClusterIssuer](https://cert-manager.io/docs/concepts/issuer/).
+
+    CertManager mode lets you use your own cert-manager Issuer(namespace-scoped) or ClusterIssuer (cluster-scoped) to issue TLS certificates for the DocumentDB gateway. This is ideal for production environments that already have PKI infrastructure (for example, [Let's Encrypt](https://letsencrypt.org/), or a corporate CA).
+
 
     ```yaml title="documentdb-tls-certmanager.yaml"
     apiVersion: documentdb.io/preview
@@ -129,24 +128,22 @@ Select your TLS mode below. Each tab shows the complete YAML configuration and c
             dnsNames: # (3)!
               - documentdb.example.com
               - "*.documentdb.example.com"
-            secretName: my-documentdb-tls
+            secretName: my-documentdb-tls # (4)!
     ```
 
-    1. Name of your cert-manager Issuer or ClusterIssuer resource.
-    2. Use `ClusterIssuer` for cluster-scoped issuers, or `Issuer` for namespace-scoped.
-    3. Subject Alternative Names — add all DNS names clients will use to connect.
+    1. Must match the `metadata.name` of your Issuer or ClusterIssuer.
+    2. Use [`ClusterIssuer`](https://cert-manager.io/docs/concepts/issuer/#cluster-resource) for cluster-scoped issuers, or [`Issuer`](https://cert-manager.io/docs/concepts/issuer/#namespaces) for namespace-scoped.
+    3. [Subject Alternative Names](https://en.wikipedia.org/wiki/Subject_Alternative_Name) — add all DNS names clients will use to connect.
+    4. The Kubernetes Secret where cert-manager will store the issued certificate.
 
-    #### CertManager Field Reference
-
-    | Field | Type | Required | Default | Description |
-    |-------|------|----------|---------|-------------|
-    | `issuerRef.name` | string | Yes | — | Name of the cert-manager Issuer or ClusterIssuer. |
-    | `issuerRef.kind` | string | No | `Issuer` | Kind of the issuer: `Issuer` (namespace-scoped) or `ClusterIssuer` (cluster-scoped). |
-    | `issuerRef.group` | string | No | `cert-manager.io` | API group of the issuer. |
-    | `dnsNames` | []string | No | — | Subject Alternative Names for the certificate. |
-    | `secretName` | string | No | Auto-generated | Name of the Kubernetes Secret to store the issued certificate. |
+    For a complete list of CertManager fields, see the [API Reference — TLS Types](../api-reference.md#tlsconfiguration).
 
 === "Provided"
+
+    **Best for:** Production with centralized certificate management
+
+    !!! note "Prerequisites"
+        A Kubernetes TLS Secret containing `tls.crt`, `tls.key`, and `ca.crt`.
 
     Provided mode lets you supply your own TLS certificates. This is ideal when certificates are managed externally (for example, from Azure Key Vault, HashiCorp Vault, or a corporate CA).
 
@@ -182,49 +179,7 @@ Select your TLS mode below. Each tab shows the complete YAML configuration and c
 
     1. The Secret must contain three keys: `tls.crt` (server certificate), `tls.key` (private key), and `ca.crt` (CA certificate).
 
-    #### Secret Requirements
-
-    The TLS Secret must contain these keys:
-
-    | Key | Description |
-    |-----|-------------|
-    | `tls.crt` | Server certificate (PEM-encoded). |
-    | `tls.key` | Private key for the server certificate (PEM-encoded). |
-    | `ca.crt` | Certificate Authority certificate used to sign the server certificate (PEM-encoded). |
-
-#### Example: Let's Encrypt with ClusterIssuer
-
-First, create a ClusterIssuer:
-
-```yaml title="letsencrypt-clusterissuer.yaml"
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@example.com
-    privateKeySecretRef:
-      name: letsencrypt-prod-key
-    solvers:
-      - http01:
-          ingress:
-            class: nginx
-```
-
-Then reference it in your DocumentDB resource using the CertManager tab above.
-
-### Azure Key Vault Integration
-
-For production Azure deployments, use the Secrets Store CSI driver to sync certificates from Azure Key Vault:
-
-1. Enable the CSI driver on your AKS cluster
-2. Create a `SecretProviderClass` that references your Key Vault certificate
-3. The CSI driver syncs the certificate as a Kubernetes Secret
-4. Reference the synced Secret name in `provided.secretName`
-
-For a complete walkthrough, see the [Manual Provided Mode Setup Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/MANUAL-PROVIDED-MODE-SETUP.md).
+    For Azure Key Vault integration, see the [Manual Provided Mode Setup Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/MANUAL-PROVIDED-MODE-SETUP.md).
 
 ## Certificate Rotation
 
