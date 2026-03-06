@@ -8,6 +8,13 @@ theme:
   name: material
   features:
     - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
 
 # mike (https://github.com/jimporter/mike) enables versioned docs on GitHub Pages.
 # Each release gets a frozen snapshot (e.g., /0.2.0/), and "latest" always points
@@ -21,6 +28,11 @@ extra:
 nav:
   - Preview:
       - Get Started: preview/index.md
+      - Configuration:
+          - TLS: preview/configuration/tls.md
+          - Storage: preview/configuration/storage.md
+          - Networking: preview/configuration/networking.md
+          - Resource Management: preview/configuration/resource-management.md
       - Advanced Configuration: preview/advanced-configuration/README.md
       - Backup and Restore: preview/backup-and-restore.md
       - API Reference: preview/api-reference.md
@@ -33,5 +45,13 @@ plugins:
 
 markdown_extensions:
   - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.details
   - toc:
       permalink: true

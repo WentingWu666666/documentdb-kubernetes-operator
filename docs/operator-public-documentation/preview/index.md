@@ -374,44 +374,31 @@ For details, see [Sidecar Injector Plugin Configuration](https://github.com/docu
 
 ### Local high-availability (HA)
 
-Deploy multiple DocumentDB instances with automatic failover by setting `instancesPerNode` to a value greater than 1.
+Deploy multiple DocumentDB instances with automatic failover by setting `instancesPerNode` to a value greater than 1 (up to 3). This creates one primary instance and two replicas for read scalability and automatic failover.
 
-#### Enable local HA
-
-```bash
-cat <<EOF | kubectl apply -f -
-apiVersion: documentdb.io/preview
-kind: DocumentDB
-metadata:
-  name: documentdb-ha
-  namespace: <your-namespace>
+```yaml
 spec:
-  nodeCount: 1
-  instancesPerNode: 3
-  documentDbCredentialSecret: documentdb-credentials
-  resource:
-    storage:
-      pvcSize: 10Gi
-  exposeViaService:
-    serviceType: LoadBalancer
-EOF
+  instancesPerNode: 3    # 1 primary + 2 replicas
 ```
 
-This configuration creates:
-
-- **1 primary instance** — handles all write operations
-- **2 replica instances** — provide read scalability and automatic failover
+For sizing guidelines and workload profiles, see [Resource Management](configuration/resource-management.md). For the full field reference, see the [API Reference](api-reference.md#documentdbspec).
 
 ### Multi-cloud deployment
 
 The operator supports deployment across multiple cloud environments and Kubernetes distributions. For guidance, see the [Multi-Cloud Deployment Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/multi-cloud-deployment/README.md).
 
-### TLS setup
+### TLS
 
-For advanced TLS configuration and testing:
+The operator supports four TLS modes: Disabled, SelfSigned, CertManager, and Provided. See [TLS Configuration](configuration/tls.md) for setup instructions, certificate rotation, and troubleshooting.
 
-- [TLS Setup Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/README.md) — Complete TLS configuration guide
-- [E2E Testing](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/E2E-TESTING.md) — Comprehensive testing procedures
+For automated TLS testing scripts, see the [TLS Playground](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/README.md).
+
+
+### Further reading
+
+- [API Reference](api-reference.md) — Auto-generated CRD type reference
+- [Backup and Restore](backup-and-restore.md) — On-demand and scheduled backups
+- [kubectl Plugin](kubectl-plugin.md) — CLI tooling for day-two operations
 
 
 ## Clean up
