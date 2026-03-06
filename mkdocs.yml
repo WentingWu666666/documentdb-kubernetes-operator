@@ -6,6 +6,8 @@ docs_dir: docs/operator-public-documentation
 # the readthedocs theme does not support it.
 theme:
   name: material
+  features:
+    - content.code.copy
 
 # mike (https://github.com/jimporter/mike) enables versioned docs on GitHub Pages.
 # Each release gets a frozen snapshot (e.g., /0.2.0/), and "latest" always points
