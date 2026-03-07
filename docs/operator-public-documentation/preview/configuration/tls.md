@@ -75,14 +75,10 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
           pvcSize: 10Gi
       tls:
         gateway:
-          mode: SelfSigned # (1)!
+          mode: SelfSigned
     ```
 
-    The operator handles CA and certificate generation automatically:
-    1. Create a self-signed CA Issuer
-    2. Generate a CA certificate
-    3. Create a server certificate signed by the CA
-    4. Mount the certificate in the gateway pod
+    The operator automatically creates a self-signed CA, generates a server certificate, and mounts it in the gateway pod.
 
     Connect with TLS using the CA certificate:
 
@@ -103,8 +99,9 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
     !!! note "Prerequisites"
         [cert-manager](https://cert-manager.io/) must be installed (see [Install cert-manager](../index.md#install-cert-manager)), plus a configured [Issuer or ClusterIssuer](https://cert-manager.io/docs/concepts/issuer/).
 
-    CertManager mode lets you use your own cert-manager Issuer(namespace-scoped) or ClusterIssuer (cluster-scoped) to issue TLS certificates for the DocumentDB gateway. This is ideal for production environments that already have PKI infrastructure (for example, [Let's Encrypt](https://letsencrypt.org/), or a corporate CA).
+    CertManager mode lets you use your own cert-manager [Issuer](https://cert-manager.io/docs/concepts/issuer/#namespaces) (namespace-scoped) or [ClusterIssuer](https://cert-manager.io/docs/concepts/issuer/) (cluster-scoped) to issue TLS certificates for the DocumentDB gateway. This is ideal for production environments that already have PKI infrastructure (for example, a corporate CA).
 
+    Set `issuerRef.name` and `issuerRef.kind` to match your Issuer or ClusterIssuer. The operator will automatically request a certificate and mount it in the gateway.
 
     ```yaml title="documentdb-tls-certmanager.yaml"
     apiVersion: documentdb.io/preview
@@ -143,7 +140,7 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
     **Best for:** Production with centralized certificate management
 
     !!! note "Prerequisites"
-        A Kubernetes TLS Secret containing `tls.crt`, `tls.key`, and `ca.crt`.
+        A Kubernetes [TLS Secret](https://kubernetes.io/docs/concepts/configuration/secret/#tls-secrets) containing `tls.crt` and `tls.key` (and optionally `ca.crt`).
 
     Provided mode lets you supply your own TLS certificates. This is ideal when certificates are managed externally (for example, from Azure Key Vault, HashiCorp Vault, or a corporate CA).
 
@@ -153,7 +150,7 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
     kubectl create secret generic my-documentdb-tls -n default \
       --from-file=tls.crt=server.crt \
       --from-file=tls.key=server.key \
-      --from-file=ca.crt=ca.crt
+      --from-file=ca.crt=ca.crt  # optional: include if clients need CA verification
     ```
 
     Then reference the secret in your DocumentDB configuration:
@@ -177,7 +174,7 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
             secretName: my-documentdb-tls # (1)!
     ```
 
-    1. The Secret must contain three keys: `tls.crt` (server certificate), `tls.key` (private key), and `ca.crt` (CA certificate).
+    1. The Secret must contain `tls.crt` (server certificate) and `tls.key` (private key). Optionally include `ca.crt` (CA certificate) if clients need to verify the server.
 
     For Azure Key Vault integration, see the [Manual Provided Mode Setup Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/MANUAL-PROVIDED-MODE-SETUP.md).
 
@@ -258,36 +255,10 @@ kubectl logs -n <namespace> <pod-name> -c gateway
 
 ### Azure Key Vault Access Denied (Provided Mode)
 
-**Symptoms**: Secret is not synced from Azure Key Vault.
-
-```bash
-# Check SecretProviderClass status
-kubectl describe secretproviderclass -n <namespace>
-
-# Check CSI driver pods
-kubectl get pods -n kube-system -l app=secrets-store-csi-driver
-```
-
-**Common causes**:
-
-- Managed identity does not have `Key Vault Secrets User` role on the Key Vault
-- The Key Vault firewall is blocking access from the AKS cluster
-- The CSI driver addon is not enabled on the cluster
-
-## Security Context
-
-The DocumentDB gateway runs with a hardened security context:
-
-- **Non-root execution**: All containers run as non-root users
-- **No privilege escalation**: `allowPrivilegeEscalation: false`
-- **Read-only root filesystem**: Where applicable
-
-TLS certificates are mounted as read-only volumes into the gateway container. The operator manages certificate lifecycle without requiring elevated privileges.
+**Symptoms**: Secret is not synced from Azure Key Vault. See the [Manual Provided Mode Setup Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/MANUAL-PROVIDED-MODE-SETUP.md) for troubleshooting.
 
 ## Additional Resources
 
-- [Complete TLS Setup Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/README.md) — Automated scripts for TLS setup
-- [E2E Testing Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/E2E-TESTING.md) — Automated TLS testing
-- [Manual Provided Mode Setup](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/MANUAL-PROVIDED-MODE-SETUP.md) — Step-by-step Azure Key Vault integration
-- [API Reference — TLS Types](../api-reference.md#tlsconfiguration) — Auto-generated reference for TLSConfiguration, GatewayTLS, and related types
+- [API Reference — TLS Types](../api-reference.md#tlsconfiguration) — Full field reference for TLSConfiguration and GatewayTLS
+- [TLS Setup Scripts](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/README.md) — Automated setup and E2E testing
 - [cert-manager Documentation](https://cert-manager.io/docs/)
