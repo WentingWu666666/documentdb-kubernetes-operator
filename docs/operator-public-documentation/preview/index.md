@@ -381,7 +381,7 @@ spec:
   instancesPerNode: 3    # 1 primary + 2 replicas
 ```
 
-For sizing guidelines and workload profiles, see [Resource Management](configuration/resource-management.md). For the full field reference, see the [API Reference](api-reference.md#documentdbspec).
+For the full field reference, see the [API Reference](api-reference.md#documentdbspec).
 
 ### Multi-cloud deployment
 

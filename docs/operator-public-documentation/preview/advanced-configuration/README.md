@@ -8,8 +8,6 @@ For core configuration topics, see the [Configuration](../configuration/tls.md) 
 - [TLS](../configuration/tls.md) — TLS modes, certificate rotation, and troubleshooting
 - [Storage](../configuration/storage.md) — Storage classes, PVC sizing, encryption
 - [Networking](../configuration/networking.md) — Service types, load balancers, Network Policies
-- [Resource Management](../configuration/resource-management.md) — CPU and memory sizing
-
 ## Table of Contents
 
 - [High Availability](#high-availability)
