@@ -9,67 +9,32 @@ tags:
 
 # Storage Configuration
 
-Configure persistent storage for DocumentDB clusters.
-
 ## Overview
 
-DocumentDB uses Kubernetes PersistentVolumeClaims (PVCs) for database storage. The operator manages volumes with security-hardened settings.
+DocumentDB uses Kubernetes [PersistentVolumeClaims (PVCs)](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#persistentvolumeclaims) to request storage, which are backed by [PersistentVolumes (PVs)](https://kubernetes.io/docs/concepts/storage/persistent-volumes/) provisioned by your cloud provider.
 
 ```yaml
+apiVersion: documentdb.io/preview
+kind: DocumentDB
+metadata:
+  name: my-documentdb
 spec:
   resource:
     storage:
       pvcSize: 100Gi                           # Required: storage size
-      storageClass: managed-csi-premium         # Optional: StorageClass name
+      storageClass: managed-csi-premium         # Optional: defaults to Kubernetes default StorageClass
       persistentVolumeReclaimPolicy: Retain     # Optional: Retain or Delete
 ```
 
 For the full field reference, see [StorageConfiguration](../api-reference.md#storageconfiguration) in the API Reference.
 
-## Storage Classes
-
-### Recommended Storage Classes by Provider
-
-| Provider | StorageClass | Notes |
-|----------|-------------|-------|
-| **AKS** | `managed-csi-premium` | Azure Premium SSD v2. Recommended for production. |
-| **EKS** | `gp3` | AWS GP3 EBS. Good balance of price and performance. |
-| **GKE** | `premium-rwo` | Google SSD persistent disk. |
-| **Kind / Minikube** | `standard` (default) | Development only. |
-
-### Example
-
-```yaml
-spec:
-  resource:
-    storage:
-      pvcSize: 100Gi
-      storageClass: managed-csi-premium   # Replace with your provider's class
-```
-
 ## PVC Sizing
-
-| Workload | Recommended Size |
-|----------|-----------------|
-| Development / Testing | 10–20 Gi |
-| Small production | 50–100 Gi |
-| Medium production | 100–500 Gi |
-| Large production | 500 Gi–2 Ti |
 
 !!! tip
     Provision at least **2x** your expected data size to allow for WAL files, temporary files, and growth.
 
-## Volume Expansion
-
-You can increase PVC size without downtime if the StorageClass supports volume expansion (`allowVolumeExpansion: true`).
-
-```bash
-kubectl patch documentdb my-documentdb -n default --type='json' \
-  -p='[{"op": "replace", "path": "/spec/resource/storage/pvcSize", "value": "200Gi"}]'
-```
-
 !!! warning
-    Volume expansion is a one-way operation. You cannot shrink a PVC after expanding it.
+    PVC size is set at cluster creation time. Resizing an existing PVC by updating `pvcSize` is **not yet supported** — the change will be accepted but not applied. See [#298](https://github.com/documentdb/documentdb-kubernetes-operator/issues/298) for tracking.
 
 ## Reclaim Policy
 
@@ -77,6 +42,30 @@ kubectl patch documentdb my-documentdb -n default --type='json' \
 |--------|----------|
 | `Retain` (default) | PV is preserved after PVC deletion. **Recommended for production.** |
 | `Delete` | PV and underlying storage are deleted with the PVC. Suitable for development. |
+
+With `Retain`, you can recover data from a retained PV after cluster deletion. See [PersistentVolume Retention and Recovery](../backup-and-restore.md#persistentvolume-retention-and-recovery) for restore steps.
+
+## Storage Classes
+
+A [StorageClass](https://kubernetes.io/docs/concepts/storage/storage-classes/) defines the type of underlying disk (e.g., SSD vs HDD) and provisioner used for persistent volumes. If you don't specify one, Kubernetes uses the default StorageClass in your cluster.
+
+To see available StorageClasses and which one is the default:
+
+```bash
+kubectl get storageclass
+```
+
+The default is marked with `(default)` in the output.
+
+### Recommended Storage Classes by Provider
+
+For production database workloads, use an SSD-backed StorageClass:
+
+| Provider | StorageClass | Notes |
+|----------|-------------|-------|
+| **AKS** | `managed-csi-premium` | Azure Premium SSD v2. |
+| **EKS** | `gp3` | AWS GP3 EBS. |
+| **GKE** | `premium-rwo` | Google SSD persistent disk. |
 
 ## Disk Encryption
 

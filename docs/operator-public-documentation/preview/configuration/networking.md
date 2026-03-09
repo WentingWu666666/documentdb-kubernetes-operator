@@ -9,11 +9,20 @@ tags:
 
 # Networking Configuration
 
-Configure how clients connect to your DocumentDB cluster.
-
 ## Overview
 
 DocumentDB exposes connectivity through a Kubernetes Service named `documentdb-service-<cluster-name>`. The gateway listens on port **10260** (MongoDB-compatible wire protocol).
+
+```yaml
+apiVersion: documentdb.io/preview
+kind: DocumentDB
+metadata:
+  name: my-documentdb
+spec:
+  environment: aks               # Optional: aks | eks | gke
+  exposeViaService:
+    serviceType: LoadBalancer     # ClusterIP (default) | LoadBalancer
+```
 
 For the full field reference, see [ExposeViaService](../api-reference.md#exposeviaservice) in the API Reference.
 

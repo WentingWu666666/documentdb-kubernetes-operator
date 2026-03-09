@@ -9,11 +9,22 @@ tags:
 
 # TLS Configuration
 
-This guide covers TLS configuration for the DocumentDB Kubernetes Operator, including all supported modes, certificate management, rotation, monitoring, and troubleshooting.
-
 ## Overview
 
-The DocumentDB operator supports TLS encryption for gateway connections via the `spec.tls` configuration. TLS protects data in transit between clients and the DocumentDB gateway.
+The DocumentDB operator supports TLS encryption for gateway connections. TLS protects data in transit between clients and the DocumentDB gateway.
+
+```yaml
+apiVersion: documentdb.io/preview
+kind: DocumentDB
+metadata:
+  name: my-documentdb
+spec:
+  tls:
+    gateway:
+      mode: SelfSigned   # Disabled (default) | SelfSigned | CertManager | Provided
+```
+
+For the full field reference, see [TLSConfiguration](../api-reference.md#tlsconfiguration) in the API Reference.
 
 ## Configuration
 
