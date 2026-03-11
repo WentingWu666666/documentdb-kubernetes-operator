@@ -82,4 +82,7 @@ For production, consider using:
 
 ## Additional Resources
 
+- [Networking](../configuration/networking.md) — Service types, connection methods, and Network Policies
+- [TLS](../configuration/tls.md) — Certificate modes, rotation, and troubleshooting
+- [Storage](../configuration/storage.md) — PVC sizing, storage classes, and disk encryption
 - [GitHub Repository](https://github.com/documentdb/documentdb-kubernetes-operator)

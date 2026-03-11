@@ -132,6 +132,9 @@ For the full field reference, see [ExposeViaService](../api-reference.md#exposev
     mongosh "$CONNECTION_STRING"
     ```
 
+    !!! warning
+        The `eval` command executes shell expansions in the connection string. This is safe when the string comes from your own DocumentDB resource, but never pipe untrusted input through `eval`.
+
 === "Port Forwarding"
 
     Port forwarding works with any service type and is useful for local development. It connects directly to the pod, bypassing the Kubernetes Service. Run `kubectl port-forward` in one terminal and `mongosh` in a separate terminal, since port forwarding must stay running.
@@ -153,8 +156,11 @@ If your Kubernetes cluster uses restrictive [NetworkPolicies](https://kubernetes
 | Traffic | From | To | Port |
 |---------|------|----|------|
 | Application → Gateway | Application namespace | DocumentDB pods | 10260 |
-| CNPG instance manager | CNPG operator / DocumentDB pods | DocumentDB pods | 8000 |
+| CNPG instance manager (upstream) | CNPG operator / DocumentDB pods | DocumentDB pods | 8000 |
 | Database replication | DocumentDB pods | DocumentDB pods | 5432 |
+
+!!! note
+    Port 8000 is defined by [CloudNativePG](https://cloudnative-pg.io/) (the underlying PostgreSQL operator), not by the DocumentDB operator itself.
 
 !!! note
     The replication rule (port 5432) is only needed when `instancesPerNode > 1`.
