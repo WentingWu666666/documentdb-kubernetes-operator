@@ -190,6 +190,8 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
 
     **Connect with mongosh:**
 
+    If your CA is private (which most cert-manager setups are), you need `--tlsCAFile` so mongosh can verify the server certificate:
+
     ```bash
     # Extract the CA certificate from the Secret
     kubectl get secret my-documentdb-tls -n default \
@@ -242,6 +244,8 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
     ```
 
     **Connect with mongosh:**
+
+    If your CA is private, you need `--tlsCAFile` so mongosh can verify the server certificate:
 
     ```bash
     # Connect with TLS using your CA certificate
