@@ -23,18 +23,14 @@ spec:
     storage:
       pvcSize: 100Gi                           # Required: storage size
       storageClass: managed-csi-premium         # Optional: defaults to Kubernetes default StorageClass
-      persistentVolumeReclaimPolicy: Retain     # Optional: Retain or Delete
+      persistentVolumeReclaimPolicy: Retain     # Optional: Retain (default) or Delete
 ```
 
 For the full field reference, see [StorageConfiguration](../api-reference.md#storageconfiguration) in the API Reference.
 
 ## PVC Sizing
 
-!!! tip
-    Provision at least **2x** your expected data size to allow for WAL files, temporary files, and growth.
-
-!!! warning
-    PVC size is set at cluster creation time. Resizing an existing PVC by updating `pvcSize` is **not yet supported** — the change will be accepted but not applied. See [#298](https://github.com/documentdb/documentdb-kubernetes-operator/issues/298) for tracking.
+PVC size is set at cluster creation time. Online PVC resizing is **coming soon** — see [#298](https://github.com/documentdb/documentdb-kubernetes-operator/issues/298) for tracking.
 
 ## Reclaim Policy
 
@@ -57,23 +53,38 @@ kubectl get storageclass
 
 The default is marked with `(default)` in the output.
 
-### Recommended Storage Classes by Provider
-
-For production database workloads, use an SSD-backed StorageClass:
-
-| Provider | StorageClass | Notes |
-|----------|-------------|-------|
-| **AKS** | `managed-csi-premium` | Azure Premium SSD v2. |
-| **EKS** | `gp3` | AWS GP3 EBS. |
-| **GKE** | `premium-rwo` | Google SSD persistent disk. |
-
 ## Disk Encryption
 
 | Provider | Default Encryption | Customer-Managed Keys |
 |----------|-------------------|----------------------|
-| **AKS** | ✅ Enabled (platform-managed keys) | Optional via [DiskEncryptionSet](https://learn.microsoft.com/azure/aks/azure-disk-customer-managed-keys) |
-| **GKE** | ✅ Enabled (Google-managed keys) | Optional via [CMEK](https://cloud.google.com/kubernetes-engine/docs/how-to/using-cmek) |
-| **EKS** | ❌ **Not enabled by default** | Set `encrypted: "true"` in [StorageClass](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html) |
+| **AKS** | ✅ Enabled (platform-managed keys) | [Azure Disk Encryption with CMK](https://learn.microsoft.com/azure/aks/azure-disk-customer-managed-keys) |
+| **GKE** | ✅ Enabled (Google-managed keys) | [CMEK for GKE persistent disks](https://cloud.google.com/kubernetes-engine/docs/how-to/using-cmek) |
+| **EKS** | ❌ **Not enabled by default** | [EBS CSI driver encryption](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html) — set `encrypted: "true"` in StorageClass |
 
 !!! warning
     For production on EKS, always create a StorageClass with `encrypted: "true"` to ensure data at rest is protected.
+
+    ```yaml
+    apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: ebs-sc-encrypted
+    provisioner: ebs.csi.aws.com
+    parameters:
+      type: gp3
+      encrypted: "true"
+      # kmsKeyId: arn:aws:kms:<region>:<account-id>:key/<key-id>  # Optional: customer-managed key
+    reclaimPolicy: Delete
+    volumeBindingMode: WaitForFirstConsumer
+    allowVolumeExpansion: true
+    ```
+
+## PersistentVolume Security
+
+The operator automatically applies security-hardening mount options to all PersistentVolumes associated with DocumentDB clusters:
+
+| Mount Option | Description |
+|--------------|-------------|
+| `nodev` | Prevents device files from being interpreted on the filesystem |
+| `nosuid` | Prevents setuid/setgid bits from taking effect |
+| `noexec` | Prevents execution of binaries on the filesystem |

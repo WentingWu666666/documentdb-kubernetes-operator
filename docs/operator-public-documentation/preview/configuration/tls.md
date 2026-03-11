@@ -57,10 +57,10 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
           mode: Disabled
     ```
 
-    Connect without TLS:
+    **Connect with mongosh:**
 
     ```bash
-    mongosh "mongodb://<username>:<password>@<host>:10260/?directConnection=true"
+    mongosh "mongodb://<username>:<password>@<host>:10260/?directConnection=true&authMechanism=SCRAM-SHA-256"
     ```
 
 === "SelfSigned"
@@ -70,7 +70,7 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
     !!! note "Prerequisites"
         [cert-manager](https://cert-manager.io/) must be installed in the cluster. See [Install cert-manager](../index.md#install-cert-manager) for setup instructions.
 
-    SelfSigned mode uses cert-manager to automatically generate and manage a self-signed CA and server certificate. No additional configuration is needed beyond setting the mode.
+    SelfSigned mode uses cert-manager to automatically generate, manage, and rotate a self-signed server certificate (90-day validity, renewed 15 days before expiry). No additional configuration is needed beyond setting the mode.
 
     ```yaml title="documentdb-tls-selfsigned.yaml"
     apiVersion: documentdb.io/preview
@@ -89,17 +89,15 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
           mode: SelfSigned
     ```
 
-    The operator automatically creates a self-signed CA, generates a server certificate, and mounts it in the gateway pod.
-
-    Connect with TLS using the CA certificate:
+    **Connect with mongosh:**
 
     ```bash
-    # Extract the CA certificate
-    kubectl get secret documentdb-gateway-cert-tls -n default \
+    # Extract the CA certificate from the Secret
+    kubectl get secret my-documentdb-gateway-cert-tls -n default \
       -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
 
-    # Connect with mongosh
-    mongosh "mongodb://<username>:<password>@<host>:10260/?tls=true&directConnection=true" \
+    # Connect with TLS
+    mongosh "mongodb://<username>:<password>@<host>:10260/?directConnection=true&authMechanism=SCRAM-SHA-256" \
       --tls --tlsCAFile ca.crt
     ```
 
@@ -109,6 +107,43 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
 
     !!! note "Prerequisites"
         [cert-manager](https://cert-manager.io/) must be installed (see [Install cert-manager](../index.md#install-cert-manager)), plus a configured [Issuer or ClusterIssuer](https://cert-manager.io/docs/concepts/issuer/).
+
+        ??? example "Setting up a CA Issuer with cert-manager"
+
+            If you don't already have an Issuer, you can bootstrap a simple CA Issuer:
+
+            ```yaml title="cert-manager-ca-issuer.yaml"
+            # Step 1: A self-signed issuer to bootstrap the CA certificate
+            apiVersion: cert-manager.io/v1
+            kind: Issuer
+            metadata:
+              name: selfsigned-bootstrap
+            spec:
+              selfSigned: {}
+            ---
+            # Step 2: A CA certificate issued by the bootstrap issuer
+            apiVersion: cert-manager.io/v1
+            kind: Certificate
+            metadata:
+              name: my-ca
+            spec:
+              isCA: true
+              commonName: my-documentdb-ca
+              secretName: my-ca-secret
+              duration: 8760h   # 1 year
+              issuerRef:
+                name: selfsigned-bootstrap
+                kind: Issuer
+            ---
+            # Step 3: A CA issuer that signs certificates using the CA certificate
+            apiVersion: cert-manager.io/v1
+            kind: Issuer
+            metadata:
+              name: my-ca-issuer
+            spec:
+              ca:
+                secretName: my-ca-secret
+            ```
 
     CertManager mode lets you use your own cert-manager [Issuer](https://cert-manager.io/docs/concepts/issuer/#namespaces) (namespace-scoped) or [ClusterIssuer](https://cert-manager.io/docs/concepts/issuer/) (cluster-scoped) to issue TLS certificates for the DocumentDB gateway. This is ideal for production environments that already have PKI infrastructure (for example, a corporate CA).
 
@@ -131,40 +166,51 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
           mode: CertManager
           certManager:
             issuerRef:
-              name: letsencrypt-prod # (1)!
-              kind: ClusterIssuer # (2)!
+              name: my-ca-issuer # (1)!
+              kind: Issuer # (2)!
             dnsNames: # (3)!
               - documentdb.example.com
-              - "*.documentdb.example.com"
             secretName: my-documentdb-tls # (4)!
     ```
 
-    1. Must match the `metadata.name` of your Issuer or ClusterIssuer.
+    1. Must match the `metadata.name` of your Issuer or ClusterIssuer (e.g., `my-ca-issuer` from the prerequisite example above).
     2. Use [`ClusterIssuer`](https://cert-manager.io/docs/concepts/issuer/#cluster-resource) for cluster-scoped issuers, or [`Issuer`](https://cert-manager.io/docs/concepts/issuer/#namespaces) for namespace-scoped.
     3. [Subject Alternative Names](https://en.wikipedia.org/wiki/Subject_Alternative_Name) — add all DNS names clients will use to connect.
     4. The Kubernetes Secret where cert-manager will store the issued certificate.
 
-    For a complete list of CertManager fields, see the [API Reference — TLS Types](../api-reference.md#tlsconfiguration).
+    For a complete list of CertManager fields, see [CertManagerTLS](../api-reference.md#certmanagertls) in the API Reference.
+
+    **Connect with mongosh:**
+
+    ```bash
+    # Extract the CA certificate from the Secret
+    kubectl get secret my-documentdb-tls -n default \
+      -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+
+    # Connect with TLS
+    mongosh "mongodb://<username>:<password>@<host>:10260/?directConnection=true&authMechanism=SCRAM-SHA-256" \
+      --tls --tlsCAFile ca.crt
+    ```
 
 === "Provided"
 
     **Best for:** Production with centralized certificate management
 
     !!! note "Prerequisites"
-        A Kubernetes [TLS Secret](https://kubernetes.io/docs/concepts/configuration/secret/#tls-secrets) containing `tls.crt` and `tls.key` (and optionally `ca.crt`).
+        A Kubernetes [TLS Secret](https://kubernetes.io/docs/concepts/configuration/secret/#tls-secrets) containing `tls.crt` and `tls.key`.
+
+        ??? example "Creating a TLS Secret"
+
+            ```bash
+            kubectl create secret generic my-documentdb-tls -n default \
+              --from-file=tls.crt=server.crt \
+              --from-file=tls.key=server.key \
+              --from-file=ca.crt=ca.crt  # (1)!
+            ```
+
+            1. Optional. The gateway only uses `tls.crt` and `tls.key`. Including `ca.crt` stores the CA certificate in the same Secret for easy client-side retrieval.
 
     Provided mode lets you supply your own TLS certificates. This is ideal when certificates are managed externally (for example, from Azure Key Vault, HashiCorp Vault, or a corporate CA).
-
-    First, create a Kubernetes TLS Secret with your certificates:
-
-    ```bash title="Create TLS secret"
-    kubectl create secret generic my-documentdb-tls -n default \
-      --from-file=tls.crt=server.crt \
-      --from-file=tls.key=server.key \
-      --from-file=ca.crt=ca.crt  # optional: include if clients need CA verification
-    ```
-
-    Then reference the secret in your DocumentDB configuration:
 
     ```yaml title="documentdb-tls-provided.yaml"
     apiVersion: documentdb.io/preview
@@ -182,19 +228,26 @@ Select your TLS mode below. Each tab shows prerequisites, the complete YAML conf
         gateway:
           mode: Provided
           provided:
-            secretName: my-documentdb-tls # (1)!
+            secretName: my-documentdb-tls
     ```
 
-    1. The Secret must contain `tls.crt` (server certificate) and `tls.key` (private key). Optionally include `ca.crt` (CA certificate) if clients need to verify the server.
+    **Connect with mongosh:**
 
-    For Azure Key Vault integration, see the [Manual Provided Mode Setup Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/MANUAL-PROVIDED-MODE-SETUP.md).
+    ```bash
+    # Connect with TLS using your CA certificate
+    mongosh "mongodb://<username>:<password>@<host>:10260/?directConnection=true&authMechanism=SCRAM-SHA-256" \
+      --tls --tlsCAFile ca.crt
+    ```
 
 ## Certificate Rotation
 
-### Automatic Rotation
+Certificate rotation is automatic and zero-downtime. When a certificate is renewed, the gateway picks up the new certificate within ~2 minutes without restarting pods.
 
-- **SelfSigned and CertManager modes**: cert-manager automatically rotates certificates before expiration. The operator detects the updated Secret and reloads the gateway.
-- **Provided mode**: Update the external Secret (or trigger a CSI driver sync). The operator picks up changes automatically.
+| Mode | Rotation | Action required |
+|------|----------|-----------------|
+| **SelfSigned** | cert-manager auto-renews 15 days before the 90-day expiry | None |
+| **CertManager** | cert-manager auto-renews based on the Certificate CR's `renewBefore` | None |
+| **Provided** | You update the Secret contents (manually or via CSI driver sync) | Update the Secret |
 
 ### Monitoring Certificate Expiration
 
@@ -216,60 +269,14 @@ Example TLS status output:
 ```json
 {
   "ready": true,
-  "secretName": "documentdb-gateway-cert-tls",
-  "message": ""
+  "secretName": "my-documentdb-gateway-cert-tls",
+  "message": "Gateway TLS certificate ready"
 }
 ```
 
-## Troubleshooting
-
-### Certificate Not Ready
-
-**Symptoms**: `tls.ready` is `false`, pods may not start.
-
-```bash
-# Check cert-manager certificate status
-kubectl describe certificate -n <namespace>
-
-# Check cert-manager logs
-kubectl logs -n cert-manager deployment/cert-manager
-
-# Check for pending CertificateRequests
-kubectl get certificaterequest -n <namespace>
-```
-
-**Common causes**:
-
-- cert-manager is not installed or not running
-- The Issuer or ClusterIssuer does not exist or is not ready
-- DNS validation is failing (for ACME/Let's Encrypt)
-
-### TLS Connection Failures
-
-**Symptoms**: Clients cannot connect with TLS enabled.
-
-```bash
-# Test TLS handshake directly
-EXTERNAL_IP=$(kubectl get svc -n <namespace> \
-  -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
-openssl s_client -connect $EXTERNAL_IP:10260
-
-# Check gateway logs
-kubectl logs -n <namespace> <pod-name> -c gateway
-```
-
-**Common causes**:
-
-- Client is not using the correct CA certificate
-- Certificate SANs do not match the connection hostname
-- The Secret is missing required keys (`tls.crt`, `tls.key`, `ca.crt`)
-
-### Azure Key Vault Access Denied (Provided Mode)
-
-**Symptoms**: Secret is not synced from Azure Key Vault. See the [Manual Provided Mode Setup Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/MANUAL-PROVIDED-MODE-SETUP.md) for troubleshooting.
-
 ## Additional Resources
 
-- [API Reference — TLS Types](../api-reference.md#tlsconfiguration) — Full field reference for TLSConfiguration and GatewayTLS
-- [TLS Setup Scripts](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/README.md) — Automated setup and E2E testing
-- [cert-manager Documentation](https://cert-manager.io/docs/)
+The [`documentdb-playground/tls/`](https://github.com/documentdb/documentdb-kubernetes-operator/tree/main/documentdb-playground/tls) directory provides automated scripts and end-to-end guides for TLS setup on AKS:
+
+- 📖 **[E2E Testing Guide](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/E2E-TESTING.md)** — Automated and manual E2E testing workflows for all TLS modes
+- 📘 **[Manual Provided-Mode Setup](https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/tls/MANUAL-PROVIDED-MODE-SETUP.md)** — Step-by-step guide for Provided TLS mode with Azure Key Vault
