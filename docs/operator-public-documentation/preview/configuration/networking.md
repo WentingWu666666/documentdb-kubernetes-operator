@@ -33,7 +33,17 @@ For the full field reference, see [ExposeViaService](../api-reference.md#exposev
     Exposes the service only within the Kubernetes cluster.
 
     ```yaml
+    apiVersion: documentdb.io/preview
+    kind: DocumentDB
+    metadata:
+      name: my-documentdb
+      namespace: default
     spec:
+      nodeCount: 1
+      instancesPerNode: 1
+      resource:
+        storage:
+          pvcSize: 10Gi
       exposeViaService:
         serviceType: ClusterIP
     ```
@@ -55,10 +65,20 @@ For the full field reference, see [ExposeViaService](../api-reference.md#exposev
 
     Provisions a cloud load balancer for external access. Set the `environment` field to get cloud-optimized annotations.
 
-    === "AKS (Azure)"
+    === "AKS"
 
         ```yaml
+        apiVersion: documentdb.io/preview
+        kind: DocumentDB
+        metadata:
+          name: my-documentdb
+          namespace: default
         spec:
+          nodeCount: 1
+          instancesPerNode: 1
+          resource:
+            storage:
+              pvcSize: 10Gi
           environment: aks
           exposeViaService:
             serviceType: LoadBalancer
@@ -72,17 +92,20 @@ For the full field reference, see [ExposeViaService](../api-reference.md#exposev
         mongosh "mongodb://<username>:<password>@$EXTERNAL_IP:10260/?directConnection=true"
         ```
 
-        For an internal load balancer (private VNet only):
-
-        ```bash
-        kubectl annotate svc documentdb-service-my-documentdb -n default \
-          service.beta.kubernetes.io/azure-load-balancer-internal="true"
-        ```
-
-    === "EKS (AWS)"
+    === "EKS"
 
         ```yaml
+        apiVersion: documentdb.io/preview
+        kind: DocumentDB
+        metadata:
+          name: my-documentdb
+          namespace: default
         spec:
+          nodeCount: 1
+          instancesPerNode: 1
+          resource:
+            storage:
+              pvcSize: 10Gi
           environment: eks
           exposeViaService:
             serviceType: LoadBalancer
@@ -97,10 +120,20 @@ For the full field reference, see [ExposeViaService](../api-reference.md#exposev
         mongosh "mongodb://<username>:<password>@$HOSTNAME:10260/?directConnection=true"
         ```
 
-    === "GKE (Google Cloud)"
+    === "GKE"
 
         ```yaml
+        apiVersion: documentdb.io/preview
+        kind: DocumentDB
+        metadata:
+          name: my-documentdb
+          namespace: default
         spec:
+          nodeCount: 1
+          instancesPerNode: 1
+          resource:
+            storage:
+              pvcSize: 10Gi
           environment: gke
           exposeViaService:
             serviceType: LoadBalancer
@@ -120,16 +153,85 @@ If your cluster uses restrictive [NetworkPolicies](https://kubernetes.io/docs/co
 
 | Traffic | From | To | Port |
 |---------|------|----|------|
-| Operator → Database | `documentdb-operator` namespace | DocumentDB pods | 8000, 5432 |
 | Application → Gateway | Application namespace | DocumentDB pods | 10260 |
+| CNPG instance manager | CNPG operator / DocumentDB pods | DocumentDB pods | 8000 |
 | Database replication | DocumentDB pods | DocumentDB pods | 5432 |
 
-See the [Kubernetes NetworkPolicy documentation](https://kubernetes.io/docs/concepts/services-networking/network-policies/) for examples.
+!!! note
+    The replication rule (port 5432) is only needed when `instancesPerNode > 1`.
 
-## Troubleshooting
+### Example NetworkPolicy Configuration
 
-| Problem | Common Causes |
-|---------|---------------|
-| **LoadBalancer stuck in Pending** | Cloud provider quota exceeded; missing cloud controller permissions; subnet/security group misconfiguration |
-| **Connection timeout to external IP** | Firewall blocking port 10260; pod not ready; service selector mismatch |
-| **In-cluster DNS not resolving** | CoreDNS not running; wrong namespace in DNS name; service does not exist |
+If your cluster enforces a default-deny ingress policy, apply the following to allow DocumentDB traffic.
+
+=== "Gateway Access (port 10260)"
+
+    Allow application traffic to the DocumentDB gateway:
+
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: allow-documentdb-gateway
+      namespace: <documentdb-namespace>
+    spec:
+      podSelector:
+        matchLabels:
+          app: <documentdb-name>          # matches your DocumentDB CR name
+      policyTypes:
+      - Ingress
+      ingress:
+      - ports:
+        - protocol: TCP
+          port: 10260
+    ```
+
+=== "CNPG Instance Manager (port 8000)"
+
+    Allow CNPG operator health checks. **Required** — without this, CNPG cannot manage pod lifecycle.
+
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: allow-cnpg-status
+      namespace: <documentdb-namespace>
+    spec:
+      podSelector:
+        matchLabels:
+          app: <documentdb-name>
+      policyTypes:
+      - Ingress
+      ingress:
+      - ports:
+        - protocol: TCP
+          port: 8000
+    ```
+
+=== "Replication (port 5432)"
+
+    Allow pod-to-pod replication traffic. Only needed when `instancesPerNode > 1`.
+
+    ```yaml
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: allow-documentdb-replication
+      namespace: <documentdb-namespace>
+    spec:
+      podSelector:
+        matchLabels:
+          app: <documentdb-name>
+      policyTypes:
+      - Ingress
+      ingress:
+      - from:
+        - podSelector:
+            matchLabels:
+              app: <documentdb-name>
+        ports:
+        - protocol: TCP
+          port: 5432
+    ```
+
+See the [Kubernetes NetworkPolicy documentation](https://kubernetes.io/docs/concepts/services-networking/network-policies/) for more details.
