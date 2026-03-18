@@ -163,6 +163,8 @@ jobs:
         EXTENSION_IMAGE="${{ env.DOCUMENTDB_OLD_IMAGE }}"
         if [[ "$USE_COMBINED" == "true" ]]; then
           echo "DOCUMENTDB_INITIAL_IMAGE=$COMBINED_IMAGE" >> $GITHUB_ENV
+          # In combined mode, the gateway is part of the combined image
+          echo "GATEWAY_OLD_IMAGE=$COMBINED_IMAGE" >> $GITHUB_ENV
           echo "✓ Using combined image for initial deployment: $COMBINED_IMAGE"
         else
           echo "DOCUMENTDB_INITIAL_IMAGE=$EXTENSION_IMAGE" >> $GITHUB_ENV
