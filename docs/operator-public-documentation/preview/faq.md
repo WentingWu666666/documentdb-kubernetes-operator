@@ -104,7 +104,7 @@ See [Networking](configuration/networking.md) for connection details.
 
 ### How do I back up my DocumentDB cluster?
 
-The operator supports both on-demand and scheduled backups using Kubernetes custom resources. See the [Backup and Restore](backup-and-restore.md) guide for details.
+The operator supports both on-demand and scheduled backups using Kubernetes custom resources. See the [Backup and Restore](operations/backup-and-restore.md) guide for details.
 
 ### How does high availability work?
 

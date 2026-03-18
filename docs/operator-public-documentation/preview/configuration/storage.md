@@ -43,7 +43,7 @@ The `persistentVolumeReclaimPolicy` field controls what happens to your data whe
 | `Retain` (default) | Data is preserved after DocumentDB deletion. **Recommended for production.** |
 | `Delete` | Data is permanently deleted with the DocumentDB cluster. Suitable for development. |
 
-With `Retain`, you can recover data even after the DocumentDB cluster is gone. See [PersistentVolume Retention and Recovery](../backup-and-restore.md#persistentvolume-retention-and-recovery) for restore steps.
+With `Retain`, you can recover data even after the DocumentDB cluster is gone. See [Restore from Retained PersistentVolume](../operations/restore-deleted-cluster.md#method-2-restore-from-retained-persistentvolume) for restore steps.
 
 ## Storage Classes (`storageClass`)
 
