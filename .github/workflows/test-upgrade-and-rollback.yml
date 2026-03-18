@@ -286,7 +286,9 @@ jobs:
           --namespace $OPERATOR_NS \
           --set documentDbVersion="$LOCAL_IMAGE_TAG" \
           --set image.documentdbk8soperator.tag="$LOCAL_IMAGE_TAG" \
+          --set image.documentdbk8soperator.pullPolicy=IfNotPresent \
           --set image.sidecarinjector.tag="$LOCAL_IMAGE_TAG" \
+          --set image.sidecarinjector.pullPolicy=IfNotPresent \
           --wait --timeout=15m
         
         echo "Helm upgrade completed. Release info:"
