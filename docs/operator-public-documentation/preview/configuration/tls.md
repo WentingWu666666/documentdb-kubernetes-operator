@@ -263,6 +263,9 @@ Certificate rotation is automatic and zero-downtime. When a certificate is renew
 | **CertManager** | cert-manager auto-renews based on the Certificate CR's `renewBefore` | None |
 | **Provided** | You update the Secret contents (manually or via CSI driver sync) | Update the Secret |
 
+!!! note
+    Changing `spec.tls.gateway.provided.secretName` to point to a **different** Secret triggers a rolling restart of the DocumentDB cluster pods, which causes a brief period of downtime. To rotate certificates without downtime, update the contents of the **existing** Secret instead of changing the Secret name.
+
 ### Monitoring Certificate Expiration
 
 ```bash
