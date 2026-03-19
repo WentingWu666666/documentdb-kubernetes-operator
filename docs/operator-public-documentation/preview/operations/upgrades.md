@@ -66,7 +66,6 @@ Server-side apply (`--server-side --force-conflicts`) is required because the Do
 ```bash
 helm upgrade documentdb-operator documentdb/documentdb-operator \
   --namespace documentdb-operator \
-  --skip-crds \
   --wait
 ```
 
@@ -76,7 +75,6 @@ helm upgrade documentdb-operator documentdb/documentdb-operator \
     ```bash
     helm upgrade documentdb-operator documentdb/documentdb-operator \
       --namespace documentdb-operator \
-      --skip-crds \
       --atomic
     ```
 
