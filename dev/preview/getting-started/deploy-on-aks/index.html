@@ -6,27 +6,27 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Common questions about the DocumentDB Kubernetes Operator, installation, configuration, and operations.">
+        <meta name="description" content="Complete guide for deploying the DocumentDB Kubernetes Operator on Azure Kubernetes Service (AKS)">
       
       
       
       
-        <link rel="prev" href="../advanced-configuration/">
+        <link rel="prev" href="../quickstart-k3s/">
       
       
-        <link rel="next" href="../kubectl-plugin/">
+        <link rel="next" href="../deploy-on-eks/">
       
       
-      <link rel="icon" href="../../assets/images/favicon.png">
+      <link rel="icon" href="../../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.19">
     
     
       
-        <title>Frequently Asked Questions - DocumentDB-Kubernetes-Operator</title>
+        <title>Deploy on Azure Kubernetes Service - DocumentDB-Kubernetes-Operator</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.66ac8b77.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.66ac8b77.min.css">
       
       
 
@@ -45,7 +45,7 @@
       
     
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -64,7 +64,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#frequently-asked-questions-faq" class="md-skip">
+        <a href="#quick-start" class="md-skip">
           Skip to content
         </a>
       
@@ -82,7 +82,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="DocumentDB-Kubernetes-Operator" class="md-header__button md-logo" aria-label="DocumentDB-Kubernetes-Operator" data-md-component="logo">
+    <a href="../../.." title="DocumentDB-Kubernetes-Operator" class="md-header__button md-logo" aria-label="DocumentDB-Kubernetes-Operator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -102,7 +102,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Frequently Asked Questions
+              Deploy on Azure Kubernetes Service
             
           </span>
         </div>
@@ -189,7 +189,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+        <a href="../../" class="md-tabs__link">
           
   
   Preview
@@ -222,7 +222,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="DocumentDB-Kubernetes-Operator" class="md-nav__button md-logo" aria-label="DocumentDB-Kubernetes-Operator" data-md-component="logo">
+    <a href="../../.." title="DocumentDB-Kubernetes-Operator" class="md-nav__button md-logo" aria-label="DocumentDB-Kubernetes-Operator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -297,7 +297,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -315,6 +315,8 @@
                 
   
   
+    
+  
   
   
     
@@ -329,11 +331,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_2" checked>
         
           
           <label class="md-nav__link" for="__nav_1_2" id="__nav_1_2_label" tabindex="">
@@ -347,7 +349,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_1_2">
             <span class="md-nav__icon md-icon"></span>
             Getting Started
@@ -361,7 +363,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/before-you-start/" class="md-nav__link">
+      <a href="../before-you-start/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -382,7 +384,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/quickstart-kind/" class="md-nav__link">
+      <a href="../quickstart-kind/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -403,7 +405,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/quickstart-k3s/" class="md-nav__link">
+      <a href="../quickstart-k3s/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -421,10 +423,28 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../getting-started/deploy-on-aks/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Deploy on AKS
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
@@ -433,6 +453,141 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      Quick start
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#understanding-the-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Understanding the configuration
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Understanding the configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#azure-load-balancer-annotations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Azure load balancer annotations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#storage-class" class="md-nav__link">
+    <span class="md-ellipsis">
+      Storage class
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#monitoring-and-troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Monitoring and troubleshooting
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Monitoring and troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#common-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common issues
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cost-and-security-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Cost and security considerations
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cost and security considerations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cost-optimization" class="md-nav__link">
+    <span class="md-ellipsis">
+      Cost optimization
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security-baseline" class="md-nav__link">
+    <span class="md-ellipsis">
+      Security baseline
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hardening-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      Hardening examples
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#additional-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      Additional resources
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -445,7 +600,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/deploy-on-eks/" class="md-nav__link">
+      <a href="../deploy-on-eks/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -466,7 +621,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/connecting-to-documentdb/" class="md-nav__link">
+      <a href="../connecting-to-documentdb/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -538,7 +693,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/overview/" class="md-nav__link">
+      <a href="../../architecture/overview/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -610,7 +765,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/storage/" class="md-nav__link">
+      <a href="../../configuration/storage/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -631,7 +786,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/networking/" class="md-nav__link">
+      <a href="../../configuration/networking/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -652,7 +807,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/tls/" class="md-nav__link">
+      <a href="../../configuration/tls/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -724,7 +879,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../backup-and-restore/" class="md-nav__link">
+      <a href="../../backup-and-restore/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -796,7 +951,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../high-availability/overview/" class="md-nav__link">
+      <a href="../../high-availability/overview/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -817,7 +972,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../high-availability/local-ha/" class="md-nav__link">
+      <a href="../../high-availability/local-ha/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -846,7 +1001,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../advanced-configuration/" class="md-nav__link">
+      <a href="../../advanced-configuration/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -864,30 +1019,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  <span class="md-ellipsis">
-    FAQ
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../faq/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -896,215 +1031,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#general" class="md-nav__link">
-    <span class="md-ellipsis">
-      General
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="General">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#can-i-run-stateful-workloads-like-databases-on-kubernetes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Can I run stateful workloads like databases on Kubernetes?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-is-the-relationship-between-documentdb-and-postgresql" class="md-nav__link">
-    <span class="md-ellipsis">
-      What is the relationship between DocumentDB and PostgreSQL?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#which-kubernetes-distributions-are-supported" class="md-nav__link">
-    <span class="md-ellipsis">
-      Which Kubernetes distributions are supported?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#is-this-project-production-ready" class="md-nav__link">
-    <span class="md-ellipsis">
-      Is this project production-ready?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#where-can-i-find-the-full-crd-field-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      Where can I find the full CRD field reference?
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      Installation
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Installation">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-are-the-minimum-kubernetes-version-requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      What are the minimum Kubernetes version requirements?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#do-i-need-to-install-cloudnativepg-separately" class="md-nav__link">
-    <span class="md-ellipsis">
-      Do I need to install CloudNativePG separately?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-is-cert-manager-used-for" class="md-nav__link">
-    <span class="md-ellipsis">
-      What is cert-manager used for?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-are-the-minimum-resource-requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      What are the minimum resource requirements?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#which-storage-classes-should-i-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      Which storage classes should I use?
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#operations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Operations
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Operations">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-connect-to-my-documentdb-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I connect to my DocumentDB cluster?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-back-up-my-documentdb-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I back up my DocumentDB cluster?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-does-high-availability-work" class="md-nav__link">
-    <span class="md-ellipsis">
-      How does high availability work?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#can-i-deploy-across-multiple-clouds" class="md-nav__link">
-    <span class="md-ellipsis">
-      Can I deploy across multiple clouds?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-upgrade-the-operator" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I upgrade the operator?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-monitor-my-documentdb-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I monitor my DocumentDB cluster?
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1160,7 +1086,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../kubectl-plugin/" class="md-nav__link">
+      <a href="../../kubectl-plugin/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1189,7 +1115,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api-reference/" class="md-nav__link">
+      <a href="../../api-reference/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1227,8 +1153,6 @@
   
   
   
-    
-  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -1237,55 +1161,37 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#general" class="md-nav__link">
+  <a href="#quick-start" class="md-nav__link">
     <span class="md-ellipsis">
-      General
+      Quick start
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="General">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#understanding-the-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Understanding the configuration
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Understanding the configuration">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#can-i-run-stateful-workloads-like-databases-on-kubernetes" class="md-nav__link">
+  <a href="#azure-load-balancer-annotations" class="md-nav__link">
     <span class="md-ellipsis">
-      Can I run stateful workloads like databases on Kubernetes?
+      Azure load balancer annotations
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#what-is-the-relationship-between-documentdb-and-postgresql" class="md-nav__link">
+  <a href="#storage-class" class="md-nav__link">
     <span class="md-ellipsis">
-      What is the relationship between DocumentDB and PostgreSQL?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#which-kubernetes-distributions-are-supported" class="md-nav__link">
-    <span class="md-ellipsis">
-      Which Kubernetes distributions are supported?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#is-this-project-production-ready" class="md-nav__link">
-    <span class="md-ellipsis">
-      Is this project production-ready?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#where-can-i-find-the-full-crd-field-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      Where can I find the full CRD field reference?
+      Storage class
     </span>
   </a>
   
@@ -1297,55 +1203,19 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
+  <a href="#monitoring-and-troubleshooting" class="md-nav__link">
     <span class="md-ellipsis">
-      Installation
+      Monitoring and troubleshooting
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Installation">
+    <nav class="md-nav" aria-label="Monitoring and troubleshooting">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#what-are-the-minimum-kubernetes-version-requirements" class="md-nav__link">
+  <a href="#common-issues" class="md-nav__link">
     <span class="md-ellipsis">
-      What are the minimum Kubernetes version requirements?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#do-i-need-to-install-cloudnativepg-separately" class="md-nav__link">
-    <span class="md-ellipsis">
-      Do I need to install CloudNativePG separately?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-is-cert-manager-used-for" class="md-nav__link">
-    <span class="md-ellipsis">
-      What is cert-manager used for?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-are-the-minimum-resource-requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      What are the minimum resource requirements?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#which-storage-classes-should-i-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      Which storage classes should I use?
+      Common issues
     </span>
   </a>
   
@@ -1357,64 +1227,37 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#operations" class="md-nav__link">
+  <a href="#cost-and-security-considerations" class="md-nav__link">
     <span class="md-ellipsis">
-      Operations
+      Cost and security considerations
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Operations">
+    <nav class="md-nav" aria-label="Cost and security considerations">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#how-do-i-connect-to-my-documentdb-cluster" class="md-nav__link">
+  <a href="#cost-optimization" class="md-nav__link">
     <span class="md-ellipsis">
-      How do I connect to my DocumentDB cluster?
+      Cost optimization
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#how-do-i-back-up-my-documentdb-cluster" class="md-nav__link">
+  <a href="#security-baseline" class="md-nav__link">
     <span class="md-ellipsis">
-      How do I back up my DocumentDB cluster?
+      Security baseline
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#how-does-high-availability-work" class="md-nav__link">
+  <a href="#hardening-examples" class="md-nav__link">
     <span class="md-ellipsis">
-      How does high availability work?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#can-i-deploy-across-multiple-clouds" class="md-nav__link">
-    <span class="md-ellipsis">
-      Can I deploy across multiple clouds?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-upgrade-the-operator" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I upgrade the operator?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-monitor-my-documentdb-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I monitor my DocumentDB cluster?
+      Hardening examples
     </span>
   </a>
   
@@ -1422,6 +1265,15 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#additional-resources" class="md-nav__link">
+    <span class="md-ellipsis">
+      Additional resources
+    </span>
+  </a>
   
 </li>
       
@@ -1443,139 +1295,112 @@
   
 
 
-<h1 id="frequently-asked-questions-faq">Frequently Asked Questions (FAQ)<a class="headerlink" href="#frequently-asked-questions-faq" title="Permanent link">&para;</a></h1>
-<h2 id="general">General<a class="headerlink" href="#general" title="Permanent link">&para;</a></h2>
-<h3 id="can-i-run-stateful-workloads-like-databases-on-kubernetes">Can I run stateful workloads like databases on Kubernetes?<a class="headerlink" href="#can-i-run-stateful-workloads-like-databases-on-kubernetes" title="Permanent link">&para;</a></h3>
-<p>Yes. An <a href="https://dok.community/data-on-kubernetes-2021/">independent research survey</a> commissioned by the Data on Kubernetes Community found that 90% of respondents believe Kubernetes is ready for stateful workloads, and 70% run databases in production. The DocumentDB Kubernetes Operator builds on this foundation by providing a purpose-built operator that handles the complexity of deploying and managing DocumentDB clusters.</p>
-<h3 id="what-is-the-relationship-between-documentdb-and-postgresql">What is the relationship between DocumentDB and PostgreSQL?<a class="headerlink" href="#what-is-the-relationship-between-documentdb-and-postgresql" title="Permanent link">&para;</a></h3>
-<p>DocumentDB uses PostgreSQL as its underlying storage engine. The DocumentDB Gateway provides MongoDB-compatible APIs on top of PostgreSQL, so you connect to your cluster using standard MongoDB drivers and tools (such as <code>mongosh</code>) while the data is stored in PostgreSQL.</p>
-<h3 id="which-kubernetes-distributions-are-supported">Which Kubernetes distributions are supported?<a class="headerlink" href="#which-kubernetes-distributions-are-supported" title="Permanent link">&para;</a></h3>
-<p>The operator works on any conformant Kubernetes distribution (version 1.35 or later). It has been tested on:</p>
+  <h1>Deploy on AKS</h1>
+
+<p>Learn how to deploy the DocumentDB Kubernetes Operator on AKS.</p>
+<h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<p>Before you begin, make sure you have:</p>
 <ul>
-<li><strong>Azure Kubernetes Service (AKS)</strong></li>
-<li><strong>Amazon Elastic Kubernetes Service (EKS)</strong></li>
-<li><strong>Google Kubernetes Engine (GKE)</strong></li>
-<li><strong>kind</strong> and <strong>minikube</strong> for local development</li>
+<li><a href="https://learn.microsoft.com/cli/azure/install-azure-cli">Azure CLI</a> installed</li>
+<li>Logged in with <code>az login</code></li>
 </ul>
-<h3 id="is-this-project-production-ready">Is this project production-ready?<a class="headerlink" href="#is-this-project-production-ready" title="Permanent link">&para;</a></h3>
-<p>The operator is under active development and currently in <strong>preview</strong>. We don't yet recommend it for production workloads. We welcome feedback and contributions as we work toward general availability.</p>
-<h3 id="where-can-i-find-the-full-crd-field-reference">Where can I find the full CRD field reference?<a class="headerlink" href="#where-can-i-find-the-full-crd-field-reference" title="Permanent link">&para;</a></h3>
-<p>See the <a href="../api-reference/">API Reference</a> for auto-generated documentation of all DocumentDB, Backup, and ScheduledBackup CRD fields with types, defaults, and validation rules.</p>
-<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
-<h3 id="what-are-the-minimum-kubernetes-version-requirements">What are the minimum Kubernetes version requirements?<a class="headerlink" href="#what-are-the-minimum-kubernetes-version-requirements" title="Permanent link">&para;</a></h3>
-<p>Kubernetes <strong>1.35 or later</strong> is required. The operator uses the <a href="https://kubernetes.io/docs/concepts/storage/volumes/#image">ImageVolume</a> feature, which became generally available in Kubernetes 1.35.</p>
-<h3 id="do-i-need-to-install-cloudnativepg-separately">Do I need to install CloudNativePG separately?<a class="headerlink" href="#do-i-need-to-install-cloudnativepg-separately" title="Permanent link">&para;</a></h3>
-<p>No. The DocumentDB operator Helm chart includes CloudNativePG as a dependency. It is installed automatically when you install the operator.</p>
-<h3 id="what-is-cert-manager-used-for">What is cert-manager used for?<a class="headerlink" href="#what-is-cert-manager-used-for" title="Permanent link">&para;</a></h3>
-<p><a href="https://cert-manager.io">cert-manager</a> manages TLS certificates for the DocumentDB gateway. It must be installed before the operator. See the <a href="../#install-cert-manager">quickstart guide</a> for installation steps.</p>
-<h3 id="what-are-the-minimum-resource-requirements">What are the minimum resource requirements?<a class="headerlink" href="#what-are-the-minimum-resource-requirements" title="Permanent link">&para;</a></h3>
-<p>For a development or testing environment:</p>
-<table>
-<thead>
-<tr>
-<th>Resource</th>
-<th>Minimum</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>CPU</td>
-<td>500m per instance</td>
-</tr>
-<tr>
-<td>Memory</td>
-<td>512Mi per instance</td>
-</tr>
-<tr>
-<td>Storage</td>
-<td>10Gi per instance</td>
-</tr>
-</tbody>
-</table>
-<p>For production workloads, we recommend:</p>
-<table>
-<thead>
-<tr>
-<th>Resource</th>
-<th>Recommended</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>CPU</td>
-<td>2+ cores per instance</td>
-</tr>
-<tr>
-<td>Memory</td>
-<td>4Gi+ per instance</td>
-</tr>
-<tr>
-<td>Storage</td>
-<td>100Gi+ per instance (SSD-backed)</td>
-</tr>
-</tbody>
-</table>
-<p>Configure storage via <code>spec.resource.storage.pvcSize</code> in the DocumentDB CR. CPU and memory are managed by the underlying CNPG cluster.</p>
-<h3 id="which-storage-classes-should-i-use">Which storage classes should I use?<a class="headerlink" href="#which-storage-classes-should-i-use" title="Permanent link">&para;</a></h3>
-<p>Use storage classes that support:</p>
+<p>For automated deployment, use the playground scripts:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>documentdb-playground/aks-setup/scripts
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>./create-cluster.sh<span class="w"> </span>--deploy-instance
+</code></pre></div>
+<p>For complete automation details, see the
+<a href="https://github.com/documentdb/documentdb-kubernetes-operator/tree/main/documentdb-playground/aks-setup">AKS setup README</a>.</p>
+<h2 id="understanding-the-configuration">Understanding the configuration<a class="headerlink" href="#understanding-the-configuration" title="Permanent link">&para;</a></h2>
+<h3 id="azure-load-balancer-annotations">Azure load balancer annotations<a class="headerlink" href="#azure-load-balancer-annotations" title="Permanent link">&para;</a></h3>
+<p>When using AKS, set the <code>DocumentDB</code> <code>spec.environment</code> field to <code>aks</code>.
+Supported values are <code>aks</code>, <code>eks</code>, and <code>gke</code>. If you omit this field, the
+operator does not apply cloud-specific service annotations. For field details,
+see the <a href="https://documentdb.io/documentdb-kubernetes-operator/preview/api-reference/">API reference</a>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;aks&quot;</span>
+</code></pre></div>
+<p>When <code>spec.environment: "aks"</code> is set, the operator adds Azure-specific service
+annotations:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">annotations</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">service.beta.kubernetes.io/azure-load-balancer-external</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;true&quot;</span>
+</code></pre></div>
+<p>The <code>service.beta.kubernetes.io/azure-load-balancer-external</code> annotation is set
+by the operator for AKS deployments. It is not a generic Kubernetes annotation.
+This setting helps AKS provision an external load balancer with an IP address
+that can be reached outside the cluster. For AKS behavior and supported service
+<a href="https://learn.microsoft.com/azure/aks/load-balancer-standard">Use a standard public load balancer in AKS</a> and
+<a href="https://learn.microsoft.com/azure/aks/load-balancer-standard#additional-customizations-via-kubernetes-annotations">AKS load balancer annotations</a>.</p>
+<h3 id="storage-class">Storage class<a class="headerlink" href="#storage-class" title="Permanent link">&para;</a></h3>
+<p>AKS uses the built-in <code>managed-csi</code> storage class by default
+(<code>StandardSSD_LRS</code>). For production workloads, use a Premium SSD class such as
+<code>managed-csi-premium</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">spec</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">resource</span><span class="p">:</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">storage</span><span class="p">:</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">      </span><span class="nt">storageClass</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">managed-csi-premium</span>
+</code></pre></div>
+<p>For available classes, see</p>
 <ul>
-<li><strong>Volume expansion</strong> (<code>allowVolumeExpansion: true</code>)</li>
-<li><strong>Volume snapshots</strong> (for backup support)</li>
-<li><strong>SSD-backed storage</strong> (for production performance)</li>
+<li><a href="https://learn.microsoft.com/azure/aks/concepts-storage#storage-classes">AKS storage classes</a></li>
+<li><a href="https://learn.microsoft.com/azure/aks/azure-disk-csi">Azure Disk CSI driver on AKS</a></li>
+<li><a href="../../advanced-configuration/#storage-configuration">DocumentDB storage configuration</a></li>
 </ul>
-<p>Cloud-specific recommendations:</p>
-<table>
-<thead>
-<tr>
-<th>Cloud</th>
-<th>Recommended Storage Class</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>AKS</td>
-<td><code>managed-csi-premium</code></td>
-</tr>
-<tr>
-<td>EKS</td>
-<td><code>gp3</code></td>
-</tr>
-<tr>
-<td>GKE</td>
-<td><code>premium-rwo</code></td>
-</tr>
-</tbody>
-</table>
-<p>See <a href="../configuration/storage/">Storage Configuration</a> for details.</p>
-<h2 id="operations">Operations<a class="headerlink" href="#operations" title="Permanent link">&para;</a></h2>
-<h3 id="how-do-i-connect-to-my-documentdb-cluster">How do I connect to my DocumentDB cluster?<a class="headerlink" href="#how-do-i-connect-to-my-documentdb-cluster" title="Permanent link">&para;</a></h3>
-<p>Get the connection string from the cluster status:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>documentdb<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.connectionString}&#39;</span>
+<h2 id="monitoring-and-troubleshooting">Monitoring and troubleshooting<a class="headerlink" href="#monitoring-and-troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="common-issues">Common issues<a class="headerlink" href="#common-issues" title="Permanent link">&para;</a></h3>
+<p>If the service remains in <code>Pending</code>, verify AKS network profile and load balancer
+configuration:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>az<span class="w"> </span>aks<span class="w"> </span>show<span class="w"> </span>--resource-group<span class="w"> </span>RESOURCE_GROUP<span class="w"> </span>--name<span class="w"> </span>CLUSTER_NAME<span class="w"> </span>--query<span class="w"> </span>networkProfile
 </code></pre></div>
-<p>For external access via LoadBalancer, the connection string is available once the external IP is assigned.</p>
-<p>See <a href="../configuration/networking/">Networking</a> for connection details.</p>
-<h3 id="how-do-i-back-up-my-documentdb-cluster">How do I back up my DocumentDB cluster?<a class="headerlink" href="#how-do-i-back-up-my-documentdb-cluster" title="Permanent link">&para;</a></h3>
-<p>The operator supports both on-demand and scheduled backups using Kubernetes custom resources. See the <a href="../backup-and-restore/">Backup and Restore</a> guide for details.</p>
-<h3 id="how-does-high-availability-work">How does high availability work?<a class="headerlink" href="#how-does-high-availability-work" title="Permanent link">&para;</a></h3>
-<p>Set <code>spec.instancesPerNode</code> to 3 to deploy one primary and two replicas. The operator manages automatic failover — if the primary fails, a replica is promoted automatically. See the <a href="../architecture/overview/">Architecture Overview</a> for details on the failover process.</p>
-<h3 id="can-i-deploy-across-multiple-clouds">Can I deploy across multiple clouds?<a class="headerlink" href="#can-i-deploy-across-multiple-clouds" title="Permanent link">&para;</a></h3>
-<p>Yes. The operator supports multi-cloud deployment with cross-cluster replication. See the <a href="https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/multi-cloud-deployment/README.md">Multi-Cloud Deployment Guide</a> for setup instructions.</p>
-<h3 id="how-do-i-upgrade-the-operator">How do I upgrade the operator?<a class="headerlink" href="#how-do-i-upgrade-the-operator" title="Permanent link">&para;</a></h3>
-<p>Upgrade the operator using Helm:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>helm<span class="w"> </span>repo<span class="w"> </span>update
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>documentdb-operator<span class="w"> </span>documentdb/documentdb-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--namespace<span class="w"> </span>documentdb-operator
+<p>If PVCs do not bind, verify your storage classes and that Azure Disk CSI driver
+pods are healthy:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>storageclass
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>kube-system<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>csi-azuredisk
 </code></pre></div>
-<p>The operator performs rolling updates of DocumentDB clusters automatically. Always review the <a href="https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/CHANGELOG.md">CHANGELOG</a> before upgrading.</p>
-<h3 id="how-do-i-monitor-my-documentdb-cluster">How do I monitor my DocumentDB cluster?<a class="headerlink" href="#how-do-i-monitor-my-documentdb-cluster" title="Permanent link">&para;</a></h3>
-<p>The operator exposes PostgreSQL metrics via the <a href="https://cloudnative-pg.io/documentation/1.28/monitoring/">CNPG monitoring integration</a>. You can:</p>
-<ol>
-<li><strong>Scrape Prometheus metrics</strong> from pods on port 9187</li>
-<li><strong>View cluster status</strong> with <code>kubectl get documentdb &lt;name&gt;</code></li>
-<li><strong>Check pod health</strong> with <code>kubectl describe pod &lt;pod-name&gt;</code></li>
-<li><strong>Use the kubectl plugin</strong> for status: <code>kubectl documentdb status &lt;name&gt;</code></li>
-</ol>
-<p>See the <a href="https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/telemetry/README.md">Telemetry setup</a> for Prometheus and Grafana configuration.</p>
+<h2 id="cost-and-security-considerations">Cost and security considerations<a class="headerlink" href="#cost-and-security-considerations" title="Permanent link">&para;</a></h2>
+<h3 id="cost-optimization">Cost optimization<a class="headerlink" href="#cost-optimization" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Use smaller virtual machine (VM) sizes for development, such as <code>Standard_B2s</code></li>
+<li>Reduce node count in non-production environments</li>
+<li>Use Standard SSD where Premium SSD is not required</li>
+<li>Review <a href="https://azure.microsoft.com/pricing/details/kubernetes-service/">AKS pricing</a>
+  for current rates</li>
+</ul>
+<h3 id="security-baseline">Security baseline<a class="headerlink" href="#security-baseline" title="Permanent link">&para;</a></h3>
+<ul>
+<li><a href="https://learn.microsoft.com/azure/aks/use-managed-identity">Managed identity</a>
+  for Azure resource access</li>
+<li><a href="https://learn.microsoft.com/azure/aks/use-network-policies">Network policies</a>
+  enabled</li>
+<li><a href="https://learn.microsoft.com/azure/aks/enable-host-encryption">Encryption at rest</a>
+  on managed disks</li>
+<li><a href="../../advanced-configuration/#tls-configuration">TLS configuration</a>
+  for database traffic</li>
+<li><a href="https://learn.microsoft.com/azure/aks/manage-azure-rbac">Azure RBAC integration</a></li>
+</ul>
+<h3 id="hardening-examples">Hardening examples<a class="headerlink" href="#hardening-examples" title="Permanent link">&para;</a></h3>
+<p>Use AKS add-ons to enforce policy and integrate external secret sources. Learn
+more about
+<a href="https://learn.microsoft.com/azure/governance/policy/concepts/policy-for-kubernetes">Azure Policy for Kubernetes</a> and the
+<a href="https://learn.microsoft.com/azure/aks/csi-secrets-store-driver">Key Vault Secrets Store CSI Driver</a>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>az<span class="w"> </span>aks<span class="w"> </span>enable-addons<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--resource-group<span class="w"> </span>RESOURCE_GROUP<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--name<span class="w"> </span>CLUSTER_NAME<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--addons<span class="w"> </span>azure-policy
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>az<span class="w"> </span>aks<span class="w"> </span>enable-addons<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span>--resource-group<span class="w"> </span>RESOURCE_GROUP<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span>--name<span class="w"> </span>CLUSTER_NAME<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">  </span>--addons<span class="w"> </span>azure-keyvault-secrets-provider
+</code></pre></div>
+<h2 id="additional-resources">Additional resources<a class="headerlink" href="#additional-resources" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="https://learn.microsoft.com/azure/aks/">AKS documentation</a></li>
+<li><a href="https://learn.microsoft.com/azure/aks/best-practices">AKS best practices</a></li>
+<li><a href="https://learn.microsoft.com/azure/aks/operator-best-practices-cluster-security">AKS cluster security best practices</a></li>
+<li><a href="https://learn.microsoft.com/azure/aks/configure-azure-cni">Azure CNI networking</a></li>
+<li><a href="https://learn.microsoft.com/azure/load-balancer/">Azure load balancer</a></li>
+<li><a href="../../">DocumentDB preview getting started</a></li>
+</ul>
 
 
 
@@ -1633,10 +1458,10 @@
     </div>
     
     
-    <script id="__config" type="application/json">{"base": "../..", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "navigation.tabs", "navigation.sections", "navigation.top", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    <script id="__config" type="application/json">{"base": "../../..", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "navigation.tabs", "navigation.sections", "navigation.top", "search.suggest", "search.highlight"], "search": "../../../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.dd8806f2.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.dd8806f2.min.js"></script>
       
     
   </body>

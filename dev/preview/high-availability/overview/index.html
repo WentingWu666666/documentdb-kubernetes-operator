@@ -6,27 +6,27 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Common questions about the DocumentDB Kubernetes Operator, installation, configuration, and operations.">
+        <meta name="description" content="Understanding high availability options for DocumentDB on Kubernetes - local HA, multi-region, and multi-cloud deployments.">
       
       
       
       
-        <link rel="prev" href="../advanced-configuration/">
+        <link rel="prev" href="../../backup-and-restore/">
       
       
-        <link rel="next" href="../kubectl-plugin/">
+        <link rel="next" href="../local-ha/">
       
       
-      <link rel="icon" href="../../assets/images/favicon.png">
+      <link rel="icon" href="../../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.19">
     
     
       
-        <title>Frequently Asked Questions - DocumentDB-Kubernetes-Operator</title>
+        <title>High Availability Overview - DocumentDB-Kubernetes-Operator</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.66ac8b77.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.66ac8b77.min.css">
       
       
 
@@ -45,7 +45,7 @@
       
     
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -64,7 +64,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#frequently-asked-questions-faq" class="md-skip">
+        <a href="#high-availability-overview" class="md-skip">
           Skip to content
         </a>
       
@@ -82,7 +82,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="DocumentDB-Kubernetes-Operator" class="md-header__button md-logo" aria-label="DocumentDB-Kubernetes-Operator" data-md-component="logo">
+    <a href="../../.." title="DocumentDB-Kubernetes-Operator" class="md-header__button md-logo" aria-label="DocumentDB-Kubernetes-Operator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -102,7 +102,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Frequently Asked Questions
+              High Availability Overview
             
           </span>
         </div>
@@ -189,7 +189,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+        <a href="../../" class="md-tabs__link">
           
   
   Preview
@@ -222,7 +222,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="DocumentDB-Kubernetes-Operator" class="md-nav__button md-logo" aria-label="DocumentDB-Kubernetes-Operator" data-md-component="logo">
+    <a href="../../.." title="DocumentDB-Kubernetes-Operator" class="md-nav__button md-logo" aria-label="DocumentDB-Kubernetes-Operator" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -297,7 +297,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -361,7 +361,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/before-you-start/" class="md-nav__link">
+      <a href="../../getting-started/before-you-start/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -382,7 +382,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/quickstart-kind/" class="md-nav__link">
+      <a href="../../getting-started/quickstart-kind/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -403,7 +403,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/quickstart-k3s/" class="md-nav__link">
+      <a href="../../getting-started/quickstart-k3s/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -424,7 +424,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/deploy-on-aks/" class="md-nav__link">
+      <a href="../../getting-started/deploy-on-aks/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -445,7 +445,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/deploy-on-eks/" class="md-nav__link">
+      <a href="../../getting-started/deploy-on-eks/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -466,7 +466,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/connecting-to-documentdb/" class="md-nav__link">
+      <a href="../../getting-started/connecting-to-documentdb/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -538,7 +538,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/overview/" class="md-nav__link">
+      <a href="../../architecture/overview/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -610,7 +610,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/storage/" class="md-nav__link">
+      <a href="../../configuration/storage/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -631,7 +631,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/networking/" class="md-nav__link">
+      <a href="../../configuration/networking/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -652,7 +652,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/tls/" class="md-nav__link">
+      <a href="../../configuration/tls/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -724,7 +724,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../backup-and-restore/" class="md-nav__link">
+      <a href="../../backup-and-restore/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -750,6 +750,8 @@
                 
   
   
+    
+  
   
   
     
@@ -764,11 +766,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_6" checked>
         
           
           <label class="md-nav__link" for="__nav_1_6" id="__nav_1_6_label" tabindex="">
@@ -782,7 +784,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_6_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_1_6">
             <span class="md-nav__icon md-icon"></span>
             High Availability
@@ -793,10 +795,30 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../high-availability/overview/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Overview
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
@@ -805,6 +827,137 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-high-availability" class="md-nav__link">
+    <span class="md-ellipsis">
+      What is High Availability?
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#types-of-high-availability" class="md-nav__link">
+    <span class="md-ellipsis">
+      Types of High Availability
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Types of High Availability">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#local-high-availability" class="md-nav__link">
+    <span class="md-ellipsis">
+      Local High Availability
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-region-deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      Multi-Region Deployment
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-cloud-deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      Multi-Cloud Deployment
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rto-and-rpo-concepts" class="md-nav__link">
+    <span class="md-ellipsis">
+      RTO and RPO Concepts
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="RTO and RPO Concepts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recovery-time-objective-rto" class="md-nav__link">
+    <span class="md-ellipsis">
+      Recovery Time Objective (RTO)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recovery-point-objective-rpo" class="md-nav__link">
+    <span class="md-ellipsis">
+      Recovery Point Objective (RPO)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      Decision Tree
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#trade-offs-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      Trade-offs Summary
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      Next Steps
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -817,7 +970,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../high-availability/local-ha/" class="md-nav__link">
+      <a href="../local-ha/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -846,7 +999,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../advanced-configuration/" class="md-nav__link">
+      <a href="../../advanced-configuration/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -864,30 +1017,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  <span class="md-ellipsis">
-    FAQ
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../faq/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -896,215 +1029,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#general" class="md-nav__link">
-    <span class="md-ellipsis">
-      General
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="General">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#can-i-run-stateful-workloads-like-databases-on-kubernetes" class="md-nav__link">
-    <span class="md-ellipsis">
-      Can I run stateful workloads like databases on Kubernetes?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-is-the-relationship-between-documentdb-and-postgresql" class="md-nav__link">
-    <span class="md-ellipsis">
-      What is the relationship between DocumentDB and PostgreSQL?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#which-kubernetes-distributions-are-supported" class="md-nav__link">
-    <span class="md-ellipsis">
-      Which Kubernetes distributions are supported?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#is-this-project-production-ready" class="md-nav__link">
-    <span class="md-ellipsis">
-      Is this project production-ready?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#where-can-i-find-the-full-crd-field-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      Where can I find the full CRD field reference?
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      Installation
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Installation">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-are-the-minimum-kubernetes-version-requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      What are the minimum Kubernetes version requirements?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#do-i-need-to-install-cloudnativepg-separately" class="md-nav__link">
-    <span class="md-ellipsis">
-      Do I need to install CloudNativePG separately?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-is-cert-manager-used-for" class="md-nav__link">
-    <span class="md-ellipsis">
-      What is cert-manager used for?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-are-the-minimum-resource-requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      What are the minimum resource requirements?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#which-storage-classes-should-i-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      Which storage classes should I use?
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#operations" class="md-nav__link">
-    <span class="md-ellipsis">
-      Operations
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Operations">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-connect-to-my-documentdb-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I connect to my DocumentDB cluster?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-back-up-my-documentdb-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I back up my DocumentDB cluster?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-does-high-availability-work" class="md-nav__link">
-    <span class="md-ellipsis">
-      How does high availability work?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#can-i-deploy-across-multiple-clouds" class="md-nav__link">
-    <span class="md-ellipsis">
-      Can I deploy across multiple clouds?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-upgrade-the-operator" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I upgrade the operator?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-monitor-my-documentdb-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I monitor my DocumentDB cluster?
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1160,7 +1084,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../kubectl-plugin/" class="md-nav__link">
+      <a href="../../kubectl-plugin/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1189,7 +1113,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api-reference/" class="md-nav__link">
+      <a href="../../api-reference/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1237,55 +1161,46 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#general" class="md-nav__link">
+  <a href="#what-is-high-availability" class="md-nav__link">
     <span class="md-ellipsis">
-      General
+      What is High Availability?
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="General">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#types-of-high-availability" class="md-nav__link">
+    <span class="md-ellipsis">
+      Types of High Availability
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Types of High Availability">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#can-i-run-stateful-workloads-like-databases-on-kubernetes" class="md-nav__link">
+  <a href="#local-high-availability" class="md-nav__link">
     <span class="md-ellipsis">
-      Can I run stateful workloads like databases on Kubernetes?
+      Local High Availability
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#what-is-the-relationship-between-documentdb-and-postgresql" class="md-nav__link">
+  <a href="#multi-region-deployment" class="md-nav__link">
     <span class="md-ellipsis">
-      What is the relationship between DocumentDB and PostgreSQL?
+      Multi-Region Deployment
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#which-kubernetes-distributions-are-supported" class="md-nav__link">
+  <a href="#multi-cloud-deployment" class="md-nav__link">
     <span class="md-ellipsis">
-      Which Kubernetes distributions are supported?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#is-this-project-production-ready" class="md-nav__link">
-    <span class="md-ellipsis">
-      Is this project production-ready?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#where-can-i-find-the-full-crd-field-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      Where can I find the full CRD field reference?
+      Multi-Cloud Deployment
     </span>
   </a>
   
@@ -1297,55 +1212,28 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
+  <a href="#rto-and-rpo-concepts" class="md-nav__link">
     <span class="md-ellipsis">
-      Installation
+      RTO and RPO Concepts
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Installation">
+    <nav class="md-nav" aria-label="RTO and RPO Concepts">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#what-are-the-minimum-kubernetes-version-requirements" class="md-nav__link">
+  <a href="#recovery-time-objective-rto" class="md-nav__link">
     <span class="md-ellipsis">
-      What are the minimum Kubernetes version requirements?
+      Recovery Time Objective (RTO)
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#do-i-need-to-install-cloudnativepg-separately" class="md-nav__link">
+  <a href="#recovery-point-objective-rpo" class="md-nav__link">
     <span class="md-ellipsis">
-      Do I need to install CloudNativePG separately?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-is-cert-manager-used-for" class="md-nav__link">
-    <span class="md-ellipsis">
-      What is cert-manager used for?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#what-are-the-minimum-resource-requirements" class="md-nav__link">
-    <span class="md-ellipsis">
-      What are the minimum resource requirements?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#which-storage-classes-should-i-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      Which storage classes should I use?
+      Recovery Point Objective (RPO)
     </span>
   </a>
   
@@ -1357,71 +1245,29 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#operations" class="md-nav__link">
+  <a href="#decision-tree" class="md-nav__link">
     <span class="md-ellipsis">
-      Operations
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Operations">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-connect-to-my-documentdb-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I connect to my DocumentDB cluster?
+      Decision Tree
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-back-up-my-documentdb-cluster" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#trade-offs-summary" class="md-nav__link">
     <span class="md-ellipsis">
-      How do I back up my DocumentDB cluster?
+      Trade-offs Summary
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#how-does-high-availability-work" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
     <span class="md-ellipsis">
-      How does high availability work?
+      Next Steps
     </span>
   </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#can-i-deploy-across-multiple-clouds" class="md-nav__link">
-    <span class="md-ellipsis">
-      Can I deploy across multiple clouds?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-upgrade-the-operator" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I upgrade the operator?
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#how-do-i-monitor-my-documentdb-cluster" class="md-nav__link">
-    <span class="md-ellipsis">
-      How do I monitor my DocumentDB cluster?
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1443,139 +1289,272 @@
   
 
 
-<h1 id="frequently-asked-questions-faq">Frequently Asked Questions (FAQ)<a class="headerlink" href="#frequently-asked-questions-faq" title="Permanent link">&para;</a></h1>
-<h2 id="general">General<a class="headerlink" href="#general" title="Permanent link">&para;</a></h2>
-<h3 id="can-i-run-stateful-workloads-like-databases-on-kubernetes">Can I run stateful workloads like databases on Kubernetes?<a class="headerlink" href="#can-i-run-stateful-workloads-like-databases-on-kubernetes" title="Permanent link">&para;</a></h3>
-<p>Yes. An <a href="https://dok.community/data-on-kubernetes-2021/">independent research survey</a> commissioned by the Data on Kubernetes Community found that 90% of respondents believe Kubernetes is ready for stateful workloads, and 70% run databases in production. The DocumentDB Kubernetes Operator builds on this foundation by providing a purpose-built operator that handles the complexity of deploying and managing DocumentDB clusters.</p>
-<h3 id="what-is-the-relationship-between-documentdb-and-postgresql">What is the relationship between DocumentDB and PostgreSQL?<a class="headerlink" href="#what-is-the-relationship-between-documentdb-and-postgresql" title="Permanent link">&para;</a></h3>
-<p>DocumentDB uses PostgreSQL as its underlying storage engine. The DocumentDB Gateway provides MongoDB-compatible APIs on top of PostgreSQL, so you connect to your cluster using standard MongoDB drivers and tools (such as <code>mongosh</code>) while the data is stored in PostgreSQL.</p>
-<h3 id="which-kubernetes-distributions-are-supported">Which Kubernetes distributions are supported?<a class="headerlink" href="#which-kubernetes-distributions-are-supported" title="Permanent link">&para;</a></h3>
-<p>The operator works on any conformant Kubernetes distribution (version 1.35 or later). It has been tested on:</p>
+<h1 id="high-availability-overview">High Availability Overview<a class="headerlink" href="#high-availability-overview" title="Permanent link">&para;</a></h1>
+<p>High availability (HA) ensures your DocumentDB deployment remains accessible and operational despite component failures. This guide covers the HA options available and helps you choose the right approach for your requirements.</p>
+<h2 id="what-is-high-availability">What is High Availability?<a class="headerlink" href="#what-is-high-availability" title="Permanent link">&para;</a></h2>
+<p>High availability in DocumentDB means:</p>
 <ul>
-<li><strong>Azure Kubernetes Service (AKS)</strong></li>
-<li><strong>Amazon Elastic Kubernetes Service (EKS)</strong></li>
-<li><strong>Google Kubernetes Engine (GKE)</strong></li>
-<li><strong>kind</strong> and <strong>minikube</strong> for local development</li>
+<li><strong>Automatic failover</strong>: When a primary instance fails, a replica is automatically promoted</li>
+<li><strong>Data durability</strong>: Data is replicated across multiple instances</li>
+<li><strong>Minimal downtime</strong>: Recovery happens automatically without manual intervention</li>
+<li><strong>Continuous operation</strong>: Applications experience brief interruption rather than extended outages</li>
 </ul>
-<h3 id="is-this-project-production-ready">Is this project production-ready?<a class="headerlink" href="#is-this-project-production-ready" title="Permanent link">&para;</a></h3>
-<p>The operator is under active development and currently in <strong>preview</strong>. We don't yet recommend it for production workloads. We welcome feedback and contributions as we work toward general availability.</p>
-<h3 id="where-can-i-find-the-full-crd-field-reference">Where can I find the full CRD field reference?<a class="headerlink" href="#where-can-i-find-the-full-crd-field-reference" title="Permanent link">&para;</a></h3>
-<p>See the <a href="../api-reference/">API Reference</a> for auto-generated documentation of all DocumentDB, Backup, and ScheduledBackup CRD fields with types, defaults, and validation rules.</p>
-<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
-<h3 id="what-are-the-minimum-kubernetes-version-requirements">What are the minimum Kubernetes version requirements?<a class="headerlink" href="#what-are-the-minimum-kubernetes-version-requirements" title="Permanent link">&para;</a></h3>
-<p>Kubernetes <strong>1.35 or later</strong> is required. The operator uses the <a href="https://kubernetes.io/docs/concepts/storage/volumes/#image">ImageVolume</a> feature, which became generally available in Kubernetes 1.35.</p>
-<h3 id="do-i-need-to-install-cloudnativepg-separately">Do I need to install CloudNativePG separately?<a class="headerlink" href="#do-i-need-to-install-cloudnativepg-separately" title="Permanent link">&para;</a></h3>
-<p>No. The DocumentDB operator Helm chart includes CloudNativePG as a dependency. It is installed automatically when you install the operator.</p>
-<h3 id="what-is-cert-manager-used-for">What is cert-manager used for?<a class="headerlink" href="#what-is-cert-manager-used-for" title="Permanent link">&para;</a></h3>
-<p><a href="https://cert-manager.io">cert-manager</a> manages TLS certificates for the DocumentDB gateway. It must be installed before the operator. See the <a href="../#install-cert-manager">quickstart guide</a> for installation steps.</p>
-<h3 id="what-are-the-minimum-resource-requirements">What are the minimum resource requirements?<a class="headerlink" href="#what-are-the-minimum-resource-requirements" title="Permanent link">&para;</a></h3>
-<p>For a development or testing environment:</p>
+<h2 id="types-of-high-availability">Types of High Availability<a class="headerlink" href="#types-of-high-availability" title="Permanent link">&para;</a></h2>
+<p>DocumentDB supports three levels of high availability, each providing different trade-offs between complexity, cost, and resilience:</p>
+<pre class="mermaid"><code>flowchart LR
+    subgraph Local["Local HA (Single Cluster)"]
+        direction TB
+        P1[Primary] --&gt; R1[Replica 1]
+        P1 --&gt; R2[Replica 2]
+    end
+
+    subgraph MultiRegion["Multi-Region (Same Cloud)"]
+        direction TB
+        subgraph Region1[Region A]
+            P2[Primary Cluster]
+        end
+        subgraph Region2[Region B]
+            S2[Standby Cluster]
+        end
+        P2 -.-&gt;|Async Replication| S2
+    end
+
+    subgraph MultiCloud["Multi-Cloud"]
+        direction TB
+        subgraph Cloud1[Azure]
+            P3[Primary]
+        end
+        subgraph Cloud2[GCP]
+            S3a[Replica]
+        end
+        subgraph Cloud3[AWS]
+            S3b[Replica]
+        end
+        P3 -.-&gt;|Cross-Cloud| S3a
+        P3 -.-&gt;|Cross-Cloud| S3b
+    end
+
+    Local ~~~ MultiRegion ~~~ MultiCloud</code></pre>
+<h3 id="local-high-availability">Local High Availability<a class="headerlink" href="#local-high-availability" title="Permanent link">&para;</a></h3>
+<p>Local HA runs multiple DocumentDB instances within a single Kubernetes cluster, distributed across availability zones.</p>
 <table>
 <thead>
 <tr>
-<th>Resource</th>
-<th>Minimum</th>
+<th>Aspect</th>
+<th>Details</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>CPU</td>
-<td>500m per instance</td>
+<td><strong>Scope</strong></td>
+<td>Single Kubernetes cluster</td>
 </tr>
 <tr>
-<td>Memory</td>
-<td>512Mi per instance</td>
+<td><strong>Instances</strong></td>
+<td>1-3 instances (primary + replicas)</td>
 </tr>
 <tr>
-<td>Storage</td>
-<td>10Gi per instance</td>
+<td><strong>Failover</strong></td>
+<td>Automatic, typically &lt; 30 seconds</td>
+</tr>
+<tr>
+<td><strong>Data Loss</strong></td>
+<td>Minimal (async streaming replication)</td>
+</tr>
+<tr>
+<td><strong>Use Case</strong></td>
+<td>Standard production deployments</td>
 </tr>
 </tbody>
 </table>
-<p>For production workloads, we recommend:</p>
+<p><strong>Best for:</strong> Most production workloads requiring high availability without geographic distribution.</p>
+<p><a href="../local-ha/">Configure Local HA →</a></p>
+<h3 id="multi-region-deployment">Multi-Region Deployment<a class="headerlink" href="#multi-region-deployment" title="Permanent link">&para;</a></h3>
+<p>Multi-region runs DocumentDB clusters across multiple regions within the same cloud provider, connected via the cloud's native networking.</p>
 <table>
 <thead>
 <tr>
-<th>Resource</th>
-<th>Recommended</th>
+<th>Aspect</th>
+<th>Details</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>CPU</td>
-<td>2+ cores per instance</td>
+<td><strong>Scope</strong></td>
+<td>Multiple regions, single cloud provider</td>
 </tr>
 <tr>
-<td>Memory</td>
-<td>4Gi+ per instance</td>
+<td><strong>Networking</strong></td>
+<td>Azure Fleet, VNet peering</td>
 </tr>
 <tr>
-<td>Storage</td>
-<td>100Gi+ per instance (SSD-backed)</td>
+<td><strong>Failover</strong></td>
+<td>Manual promotion required</td>
+</tr>
+<tr>
+<td><strong>Data Loss</strong></td>
+<td>Minimal (async replication lag)</td>
+</tr>
+<tr>
+<td><strong>Use Case</strong></td>
+<td>Disaster recovery, data locality</td>
 </tr>
 </tbody>
 </table>
-<p>Configure storage via <code>spec.resource.storage.pvcSize</code> in the DocumentDB CR. CPU and memory are managed by the underlying CNPG cluster.</p>
-<h3 id="which-storage-classes-should-i-use">Which storage classes should I use?<a class="headerlink" href="#which-storage-classes-should-i-use" title="Permanent link">&para;</a></h3>
-<p>Use storage classes that support:</p>
+<p><strong>Best for:</strong> Disaster recovery requirements, regulatory compliance requiring data in specific regions, or reducing latency for geographically distributed users.</p>
+<h3 id="multi-cloud-deployment">Multi-Cloud Deployment<a class="headerlink" href="#multi-cloud-deployment" title="Permanent link">&para;</a></h3>
+<p>Multi-cloud runs DocumentDB across different cloud providers (Azure, AWS, GCP), connected via service mesh.</p>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Details</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Scope</strong></td>
+<td>Multiple cloud providers</td>
+</tr>
+<tr>
+<td><strong>Networking</strong></td>
+<td>Istio service mesh</td>
+</tr>
+<tr>
+<td><strong>Failover</strong></td>
+<td>Manual promotion required</td>
+</tr>
+<tr>
+<td><strong>Data Loss</strong></td>
+<td>Minimal (async replication lag)</td>
+</tr>
+<tr>
+<td><strong>Use Case</strong></td>
+<td>Vendor independence, maximum resilience</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Best for:</strong> Organizations requiring cloud vendor independence, maximum disaster resilience, or hybrid cloud strategies.</p>
+<h2 id="rto-and-rpo-concepts">RTO and RPO Concepts<a class="headerlink" href="#rto-and-rpo-concepts" title="Permanent link">&para;</a></h2>
+<p>When planning for high availability, understand these key metrics:</p>
+<h3 id="recovery-time-objective-rto">Recovery Time Objective (RTO)<a class="headerlink" href="#recovery-time-objective-rto" title="Permanent link">&para;</a></h3>
+<p><strong>RTO</strong> is the maximum acceptable time your application can be unavailable after a failure.</p>
+<table>
+<thead>
+<tr>
+<th>HA Type</th>
+<th>Typical RTO</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Local HA</td>
+<td>&lt; 30 seconds</td>
+</tr>
+<tr>
+<td>Multi-Region</td>
+<td>Minutes (manual failover)</td>
+</tr>
+<tr>
+<td>Multi-Cloud</td>
+<td>Minutes (manual failover)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="recovery-point-objective-rpo">Recovery Point Objective (RPO)<a class="headerlink" href="#recovery-point-objective-rpo" title="Permanent link">&para;</a></h3>
+<p><strong>RPO</strong> is the maximum acceptable amount of data loss measured in time.</p>
+<table>
+<thead>
+<tr>
+<th>HA Type</th>
+<th>Typical RPO</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Local HA</td>
+<td>Near-zero (milliseconds of replication lag)</td>
+</tr>
+<tr>
+<td>Multi-Region</td>
+<td>Seconds (replication lag)</td>
+</tr>
+<tr>
+<td>Multi-Cloud</td>
+<td>Seconds (replication lag)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="decision-tree">Decision Tree<a class="headerlink" href="#decision-tree" title="Permanent link">&para;</a></h2>
+<p>Use this guide to select the appropriate HA strategy:</p>
+<pre class="mermaid"><code>flowchart TD
+    A[Start] --&gt; B{Need geographic&lt;br/&gt;distribution?}
+    B --&gt;|No| C{Need zone-level&lt;br/&gt;resilience?}
+    B --&gt;|Yes| D{Need cloud vendor&lt;br/&gt;independence?}
+
+    C --&gt;|Yes| E[Local HA&lt;br/&gt;Multiple instances]
+    C --&gt;|No| F[Single instance&lt;br/&gt;Development only]
+
+    D --&gt;|Yes| G[Multi-Cloud&lt;br/&gt;Istio mesh]
+    D --&gt;|No| H[Multi-Region&lt;br/&gt;Same cloud provider]
+
+    E --&gt; I[Configure instancesPerNode: 3]
+    F --&gt; J[Configure instancesPerNode: 1]
+    G --&gt; K[Multi-Cloud Guide&lt;br/&gt;Coming soon]
+    H --&gt; L[Multi-Region Guide&lt;br/&gt;Coming soon]</code></pre>
+<h2 id="trade-offs-summary">Trade-offs Summary<a class="headerlink" href="#trade-offs-summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Factor</th>
+<th>Local HA</th>
+<th>Multi-Region</th>
+<th>Multi-Cloud</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Complexity</strong></td>
+<td>Low</td>
+<td>Medium</td>
+<td>High</td>
+</tr>
+<tr>
+<td><strong>Cost</strong></td>
+<td>$</td>
+<td>$$</td>
+<td>$$$</td>
+</tr>
+<tr>
+<td><strong>RTO</strong></td>
+<td>Seconds</td>
+<td>Minutes</td>
+<td>Minutes</td>
+</tr>
+<tr>
+<td><strong>RPO</strong></td>
+<td>Near-zero</td>
+<td>Replication lag</td>
+<td>Replication lag</td>
+</tr>
+<tr>
+<td><strong>Blast radius</strong></td>
+<td>Zone outage</td>
+<td>Region outage</td>
+<td>Cloud outage</td>
+</tr>
+<tr>
+<td><strong>Network latency</strong></td>
+<td>Minimal</td>
+<td>Regional</td>
+<td>Variable</td>
+</tr>
+</tbody>
+</table>
+<h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Volume expansion</strong> (<code>allowVolumeExpansion: true</code>)</li>
-<li><strong>Volume snapshots</strong> (for backup support)</li>
-<li><strong>SSD-backed storage</strong> (for production performance)</li>
+<li><a href="../local-ha/">Configure Local HA</a> - Set up high availability within a single cluster</li>
 </ul>
-<p>Cloud-specific recommendations:</p>
-<table>
-<thead>
-<tr>
-<th>Cloud</th>
-<th>Recommended Storage Class</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>AKS</td>
-<td><code>managed-csi-premium</code></td>
-</tr>
-<tr>
-<td>EKS</td>
-<td><code>gp3</code></td>
-</tr>
-<tr>
-<td>GKE</td>
-<td><code>premium-rwo</code></td>
-</tr>
-</tbody>
-</table>
-<p>See <a href="../configuration/storage/">Storage Configuration</a> for details.</p>
-<h2 id="operations">Operations<a class="headerlink" href="#operations" title="Permanent link">&para;</a></h2>
-<h3 id="how-do-i-connect-to-my-documentdb-cluster">How do I connect to my DocumentDB cluster?<a class="headerlink" href="#how-do-i-connect-to-my-documentdb-cluster" title="Permanent link">&para;</a></h3>
-<p>Get the connection string from the cluster status:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>kubectl<span class="w"> </span>get<span class="w"> </span>documentdb<span class="w"> </span>&lt;name&gt;<span class="w"> </span>-o<span class="w"> </span><span class="nv">jsonpath</span><span class="o">=</span><span class="s1">&#39;{.status.connectionString}&#39;</span>
-</code></pre></div>
-<p>For external access via LoadBalancer, the connection string is available once the external IP is assigned.</p>
-<p>See <a href="../configuration/networking/">Networking</a> for connection details.</p>
-<h3 id="how-do-i-back-up-my-documentdb-cluster">How do I back up my DocumentDB cluster?<a class="headerlink" href="#how-do-i-back-up-my-documentdb-cluster" title="Permanent link">&para;</a></h3>
-<p>The operator supports both on-demand and scheduled backups using Kubernetes custom resources. See the <a href="../backup-and-restore/">Backup and Restore</a> guide for details.</p>
-<h3 id="how-does-high-availability-work">How does high availability work?<a class="headerlink" href="#how-does-high-availability-work" title="Permanent link">&para;</a></h3>
-<p>Set <code>spec.instancesPerNode</code> to 3 to deploy one primary and two replicas. The operator manages automatic failover — if the primary fails, a replica is promoted automatically. See the <a href="../architecture/overview/">Architecture Overview</a> for details on the failover process.</p>
-<h3 id="can-i-deploy-across-multiple-clouds">Can I deploy across multiple clouds?<a class="headerlink" href="#can-i-deploy-across-multiple-clouds" title="Permanent link">&para;</a></h3>
-<p>Yes. The operator supports multi-cloud deployment with cross-cluster replication. See the <a href="https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/multi-cloud-deployment/README.md">Multi-Cloud Deployment Guide</a> for setup instructions.</p>
-<h3 id="how-do-i-upgrade-the-operator">How do I upgrade the operator?<a class="headerlink" href="#how-do-i-upgrade-the-operator" title="Permanent link">&para;</a></h3>
-<p>Upgrade the operator using Helm:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>helm<span class="w"> </span>repo<span class="w"> </span>update
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>documentdb-operator<span class="w"> </span>documentdb/documentdb-operator<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--namespace<span class="w"> </span>documentdb-operator
-</code></pre></div>
-<p>The operator performs rolling updates of DocumentDB clusters automatically. Always review the <a href="https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/CHANGELOG.md">CHANGELOG</a> before upgrading.</p>
-<h3 id="how-do-i-monitor-my-documentdb-cluster">How do I monitor my DocumentDB cluster?<a class="headerlink" href="#how-do-i-monitor-my-documentdb-cluster" title="Permanent link">&para;</a></h3>
-<p>The operator exposes PostgreSQL metrics via the <a href="https://cloudnative-pg.io/documentation/1.28/monitoring/">CNPG monitoring integration</a>. You can:</p>
-<ol>
-<li><strong>Scrape Prometheus metrics</strong> from pods on port 9187</li>
-<li><strong>View cluster status</strong> with <code>kubectl get documentdb &lt;name&gt;</code></li>
-<li><strong>Check pod health</strong> with <code>kubectl describe pod &lt;pod-name&gt;</code></li>
-<li><strong>Use the kubectl plugin</strong> for status: <code>kubectl documentdb status &lt;name&gt;</code></li>
-</ol>
-<p>See the <a href="https://github.com/documentdb/documentdb-kubernetes-operator/blob/main/documentdb-playground/telemetry/README.md">Telemetry setup</a> for Prometheus and Grafana configuration.</p>
 
 
 
@@ -1633,10 +1612,10 @@
     </div>
     
     
-    <script id="__config" type="application/json">{"base": "../..", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "navigation.tabs", "navigation.sections", "navigation.top", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    <script id="__config" type="application/json">{"base": "../../..", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "navigation.tabs", "navigation.sections", "navigation.top", "search.suggest", "search.highlight"], "search": "../../../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.dd8806f2.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.dd8806f2.min.js"></script>
       
     
   </body>
