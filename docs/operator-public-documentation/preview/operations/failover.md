@@ -27,13 +27,15 @@ Local automatic failover requires at least two instances (`spec.instancesPerNode
 
 ## Cross-Cluster Failover (Multi-Region)
 
-For multi-region deployments using cluster replication, you can promote a standby (replica) DocumentDB cluster to become the new primary. For end-to-end setup examples, see the [AKS Fleet multi-region deployment](https://github.com/documentdb/documentdb-kubernetes-operator/tree/main/documentdb-playground/aks-fleet-deployment) and [multi-cloud deployment](https://github.com/documentdb/documentdb-kubernetes-operator/tree/main/documentdb-playground/multi-cloud-deployment) playgrounds.
+For multi-region deployments using cluster replication, you can promote a standby (replica) DocumentDB cluster to become the new primary. The primary itself can be a multi-instance HA cluster (with `spec.instancesPerNode >= 2`), providing local failover within the region. Cross-cluster failover to another region is only needed if the entire primary region becomes unavailable.
+
+For end-to-end setup examples, see the [AKS Fleet multi-region deployment](https://github.com/documentdb/documentdb-kubernetes-operator/tree/main/documentdb-playground/aks-fleet-deployment) and [multi-cloud deployment](https://github.com/documentdb/documentdb-kubernetes-operator/tree/main/documentdb-playground/multi-cloud-deployment) playgrounds.
 
 ### Architecture
 
 In a multi-region setup:
 
-- One DocumentDB cluster is designated as the **primary** and handles all writes. The primary itself can be a multi-instance HA cluster (with `spec.instancesPerNode >= 2`), providing local failover within the region. Cross-cluster failover to another region is only needed if the entire primary region becomes unavailable.
+- One DocumentDB cluster is designated as the **primary** and handles all writes.
 - Other DocumentDB clusters are **standbys** that replicate from the primary via streaming replication.
 
 ```yaml
