@@ -110,10 +110,7 @@ helm rollback documentdb-operator -n documentdb-operator
 
 ## Component Upgrades
 
-Updating `spec.documentDBVersion` upgrades **both** the DocumentDB extension and the gateway together, since they share the same version. The operator performs the schema migration (`ALTER EXTENSION documentdb UPDATE`) only on the **primary** DocumentDB cluster — standby clusters receive the updated schema through replication.
-
-!!! warning "Multi-region upgrade order"
-    In a multi-region deployment, upgrade **all standby clusters first**, then upgrade the primary cluster last. This ensures every region is running the new binary before the schema migration executes on the primary and replicates to the standbys.
+Updating `spec.documentDBVersion` upgrades **both** the DocumentDB extension and the gateway together, since they share the same version.
 
 ### Pre-Upgrade Checklist
 
@@ -186,9 +183,6 @@ Whether you can roll back depends on whether the schema has been updated:
 3. The underlying cluster manager performs a **rolling restart**: replicas are restarted first one at a time, then the **primary is restarted in place**. Expect a brief period of downtime while the primary pod restarts.
 4. After the primary pod is healthy, the operator runs `ALTER EXTENSION documentdb UPDATE` to update the database schema.
 5. The operator tracks the schema version in `status.schemaVersion`.
-
-!!! note "Multi-region behavior"
-    In a multi-region deployment, each region's operator independently updates its pod images (steps 1–3). The schema migration (step 4) only runs on the primary cluster. Standby clusters receive the schema change through streaming replication.
 
 ### Advanced: Independent Image Overrides
 
