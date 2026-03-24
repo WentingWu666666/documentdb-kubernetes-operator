@@ -45,6 +45,12 @@ nav:
           - Storage: preview/configuration/storage.md
           - Networking: preview/configuration/networking.md
           - TLS: preview/configuration/tls.md
+      - Operations:
+          - Backup and Restore: preview/operations/backup-and-restore.md
+          - Upgrades: preview/operations/upgrades.md
+          - Failover: preview/operations/failover.md
+          - Restore a Deleted Cluster: preview/operations/restore-deleted-cluster.md
+          - Maintenance: preview/operations/maintenance.md
       - High Availability:
           - Overview: preview/high-availability/overview.md
           - Local HA: preview/high-availability/local-ha.md
@@ -53,12 +59,6 @@ nav:
       - Tools:
           - Kubectl Plugin: preview/kubectl-plugin.md
       - API Reference: preview/api-reference.md
-  - Operations:
-      - Backup and Restore: preview/operations/backup-and-restore.md
-      - Upgrades: preview/operations/upgrades.md
-      - Failover: preview/operations/failover.md
-      - Restore a Deleted Cluster: preview/operations/restore-deleted-cluster.md
-      - Maintenance: preview/operations/maintenance.md
 
 plugins:
   - search
