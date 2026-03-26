@@ -1696,6 +1696,9 @@ var _ = Describe("DocumentDB Controller", func() {
 					Name:      "test-documentdb",
 					Namespace: clusterNamespace,
 				},
+				Spec: dbpreview.DocumentDBSpec{
+					SchemaVersion: "auto",
+				},
 			}
 
 			fakeClient := fake.NewClientBuilder().
@@ -1766,6 +1769,9 @@ var _ = Describe("DocumentDB Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-documentdb",
 					Namespace: clusterNamespace,
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					SchemaVersion: "auto",
 				},
 			}
 
@@ -2241,6 +2247,9 @@ var _ = Describe("DocumentDB Controller", func() {
 					Name:      "test-documentdb",
 					Namespace: clusterNamespace,
 				},
+				Spec: dbpreview.DocumentDBSpec{
+					SchemaVersion: "auto",
+				},
 				Status: dbpreview.DocumentDBStatus{
 					// Images match cluster so updateImageStatus is a no-op
 					DocumentDBImage: "documentdb/documentdb:v1.0.0",
@@ -2279,6 +2288,432 @@ var _ = Describe("DocumentDB Controller", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to update DocumentDB status after schema upgrade"))
 			Expect(sqlCalls).To(HaveLen(2))
+		})
+	})
+
+	Describe("two-phase upgrade (spec.schemaVersion)", func() {
+		It("should skip ALTER EXTENSION when schemaVersion is empty (two-phase mode)", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			desiredCluster := cluster.DeepCopy()
+
+			// schemaVersion is empty (default) → two-phase mode
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			sqlCalls := []string{}
+			reconciler := &DocumentDBReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: recorder,
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
+					sqlCalls = append(sqlCalls, sql)
+					// Binary is 0.110-0, installed is 0.109-0 → upgrade available
+					return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
+				},
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Only version-check SQL should have been called (no ALTER EXTENSION)
+			Expect(sqlCalls).To(HaveLen(1))
+			Expect(sqlCalls[0]).To(ContainSubstring("pg_available_extensions"))
+
+			// Status should reflect installed version, NOT the binary version
+			updatedDB := &dbpreview.DocumentDB{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
+			Expect(updatedDB.Status.SchemaVersion).To(Equal("0.109.0"))
+		})
+
+		It("should run ALTER EXTENSION when schemaVersion is 'auto'", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			desiredCluster := cluster.DeepCopy()
+
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					SchemaVersion: "auto",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			sqlCalls := []string{}
+			reconciler := &DocumentDBReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: recorder,
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
+					sqlCalls = append(sqlCalls, sql)
+					if len(sqlCalls) == 1 {
+						return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
+					}
+					return "ALTER EXTENSION", nil
+				},
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Both version-check and ALTER EXTENSION should have been called
+			Expect(sqlCalls).To(HaveLen(2))
+			Expect(sqlCalls[0]).To(ContainSubstring("pg_available_extensions"))
+			Expect(sqlCalls[1]).To(Equal("ALTER EXTENSION documentdb UPDATE"))
+
+			// Status should reflect the upgraded version
+			updatedDB := &dbpreview.DocumentDB{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
+			Expect(updatedDB.Status.SchemaVersion).To(Equal("0.110.0"))
+		})
+
+		It("should run ALTER EXTENSION UPDATE TO specific version when schemaVersion is explicit", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			desiredCluster := cluster.DeepCopy()
+
+			// Explicit version: update to 0.110.0 (binary is also 0.110-0)
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					SchemaVersion: "0.110.0",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			sqlCalls := []string{}
+			reconciler := &DocumentDBReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: recorder,
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
+					sqlCalls = append(sqlCalls, sql)
+					if len(sqlCalls) == 1 {
+						// Binary is 0.110-0, installed is 0.109-0
+						return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
+					}
+					return "ALTER EXTENSION", nil
+				},
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Should run ALTER EXTENSION UPDATE TO specific version
+			Expect(sqlCalls).To(HaveLen(2))
+			Expect(sqlCalls[0]).To(ContainSubstring("pg_available_extensions"))
+			Expect(sqlCalls[1]).To(Equal("ALTER EXTENSION documentdb UPDATE TO '0.110-0'"))
+
+			// Status should reflect the explicit version
+			updatedDB := &dbpreview.DocumentDB{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
+			Expect(updatedDB.Status.SchemaVersion).To(Equal("0.110.0"))
+		})
+
+		It("should emit warning and skip when explicit schemaVersion exceeds binary version", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			desiredCluster := cluster.DeepCopy()
+
+			// Explicit version 0.112.0 exceeds binary version 0.110-0
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					SchemaVersion: "0.112.0",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			sqlCalls := []string{}
+			reconciler := &DocumentDBReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: recorder,
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
+					sqlCalls = append(sqlCalls, sql)
+					// Binary is 0.110-0, installed is 0.109-0
+					return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
+				},
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Only version-check SQL should have been called (no ALTER EXTENSION)
+			Expect(sqlCalls).To(HaveLen(1))
+
+			// Status should reflect installed version (not upgraded)
+			updatedDB := &dbpreview.DocumentDB{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
+			Expect(updatedDB.Status.SchemaVersion).To(Equal("0.109.0"))
+		})
+
+		It("should skip when explicit schemaVersion matches installed version", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			desiredCluster := cluster.DeepCopy()
+
+			// Explicit version matches installed → no-op
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					SchemaVersion: "0.109.0",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			sqlCalls := []string{}
+			reconciler := &DocumentDBReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: recorder,
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
+					sqlCalls = append(sqlCalls, sql)
+					// Binary is 0.110-0, installed is 0.109-0
+					return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
+				},
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Only version-check SQL should have been called (no ALTER EXTENSION)
+			Expect(sqlCalls).To(HaveLen(1))
+		})
+
+		It("should block image rollback when new image version is below installed schema version", func() {
+			// Current cluster has old image
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "ghcr.io/documentdb/documentdb:0.110.0",
+								},
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			// Desired cluster has OLDER image (rollback attempt)
+			desiredCluster := cluster.DeepCopy()
+			desiredCluster.Spec.PostgresConfiguration.Extensions[0].ImageVolumeSource.Reference = "ghcr.io/documentdb/documentdb:0.109.0"
+
+			// Schema is already at 0.110.0 (ALTER EXTENSION was previously applied)
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+				Status: dbpreview.DocumentDBStatus{
+					SchemaVersion: "0.110.0",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			sqlCallCount := 0
+			reconciler := &DocumentDBReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: recorder,
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
+					sqlCallCount++
+					return "", nil
+				},
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// No SQL should have been called — image patch was blocked
+			Expect(sqlCallCount).To(Equal(0))
+
+			// Verify the CNPG cluster was NOT patched (extension image unchanged)
+			updatedCluster := &cnpgv1.Cluster{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: clusterNamespace}, updatedCluster)).To(Succeed())
+			Expect(updatedCluster.Spec.PostgresConfiguration.Extensions[0].ImageVolumeSource.Reference).To(Equal("ghcr.io/documentdb/documentdb:0.110.0"))
+
+			// Verify ImageRollbackBlocked warning event was emitted
+			Expect(recorder.Events).To(HaveLen(1))
+			event := <-recorder.Events
+			Expect(event).To(ContainSubstring("ImageRollbackBlocked"))
+			Expect(event).To(ContainSubstring("0.109.0"))
+			Expect(event).To(ContainSubstring("0.110.0"))
 		})
 	})
 
