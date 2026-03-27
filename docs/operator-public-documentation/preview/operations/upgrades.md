@@ -1,6 +1,6 @@
 ---
 title: Upgrades
-description: Upgrade the DocumentDB operator (control plane) and DocumentDB clusters (data plane), including version and schema management.
+description: Upgrade the DocumentDB operator and DocumentDB clusters, including version and schema management.
 tags:
   - operations
   - upgrades
@@ -13,21 +13,21 @@ tags:
 
 Upgrades keep your DocumentDB deployment current with the latest features, security patches, and bug fixes.
 
-A DocumentDB deployment has two independently upgradable layers:
+A DocumentDB deployment has two independently upgradable components:
 
-| Layer | What It Is | What Changes | How to Trigger |
-|-------|-----------|-------------|----------------|
-| **DocumentDB Operator** (control plane) | The Kubernetes operator that manages your clusters | Operator binary + bundled CloudNative-PG | `helm upgrade` |
-| **DocumentDB** (data plane) | The database engine running inside your cluster | Extension binary + gateway sidecar + database schema | Update `spec.documentDBVersion` and `spec.schemaVersion` |
+| Component | What Changes | How to Trigger |
+|-----------|-------------|----------------|
+| **DocumentDB Operator** | Operator binary + bundled CloudNative-PG | `helm upgrade` |
+| **DocumentDB Clusters** | Extension binary + gateway sidecar + database schema | Update `spec.documentDBVersion` and `spec.schemaVersion` |
 
 !!! info
     The operator Helm chart bundles [CloudNative-PG](https://cloudnative-pg.io/) as a dependency. Upgrading the operator automatically upgrades the bundled CloudNative-PG version.
 
 ---
 
-## Upgrading the Operator (Control Plane)
+## Upgrading the Operator
 
-The operator is deployed via Helm. Upgrading it does **not** restart your DocumentDB cluster pods or change any data plane components.
+The operator is deployed via Helm. Upgrading it does **not** restart your DocumentDB cluster pods or change any cluster components.
 
 ### Step 1: Update the Helm Repository
 
@@ -107,7 +107,7 @@ helm rollback documentdb-operator -n documentdb-operator
 
 ---
 
-## Upgrading DocumentDB (Data Plane)
+## Upgrading DocumentDB Clusters
 
 Upgrading DocumentDB involves two distinct steps that can be performed together or separately:
 
