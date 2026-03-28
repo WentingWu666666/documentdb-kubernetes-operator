@@ -294,7 +294,7 @@ Whether you can roll back depends on whether the schema has been updated:
 
 1. You update `spec.documentDBVersion`.
 2. The operator updates the extension and gateway container images.
-3. The underlying cluster manager performs a **rolling restart**: replicas restart first, then the **primary restarts in place**. Expect a brief period of downtime while the primary pod restarts.
+3. The underlying cluster manager performs a **rolling update**: replicas are restarted first one at a time, then the primary is updated via **switchover** — a healthy replica is promoted to primary, and the old primary restarts as a replica. This minimizes downtime.
 4. After the primary pod is healthy, the operator checks `spec.schemaVersion`:
     - **Not set (default)**: The operator **skips** the schema migration and emits a `SchemaUpdateAvailable` event. You can safely roll back by reverting `documentDBVersion`.
     - **`"auto"`**: The operator runs `ALTER EXTENSION documentdb UPDATE` to update the schema to match the binary. This is irreversible.
