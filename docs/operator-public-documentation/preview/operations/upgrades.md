@@ -305,12 +305,11 @@ Whether you can roll back depends on whether the schema has been updated:
 
 ## Multi-Region Upgrades
 
-When running DocumentDB across multiple regions or clusters, coordinate upgrades carefully:
+When running DocumentDB across multiple regions or clusters, use the two-phase upgrade pattern across all regions:
 
-1. **Upgrade replica regions first.** Start with read-only replica clusters. Validate health and replication before touching the primary region.
-2. **Upgrade the primary region last.** Once all replicas are running the new binary successfully, upgrade the primary.
-3. **Keep schema versions consistent.** After finalizing `schemaVersion` on the primary, update it on replica clusters promptly. Running mismatched schema versions across regions for extended periods is not recommended.
-4. **Back up before each region's upgrade.** Create a backup in each region before starting its upgrade.
+1. **Upgrade the binary in all regions first.** Update `spec.documentDBVersion` in every cluster. Validate that all regions are healthy and replication is working correctly with the new binary.
+2. **Finalize the schema in all regions.** Once every region is running the new binary successfully, set `spec.schemaVersion` across all clusters. This keeps a rollback-safe window — if any region fails the binary upgrade, you can revert `documentDBVersion` everywhere before any schema change is committed.
+3. **Back up before each region's upgrade.** Create a backup in each region before starting its upgrade.
 
 !!! note
     Multi-region upgrade orchestration is performed manually — the operator manages individual clusters and does not coordinate across regions automatically.
