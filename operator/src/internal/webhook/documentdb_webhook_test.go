@@ -90,10 +90,11 @@ var _ = Describe("schema version validation", func() {
 		Expect(result[0].Detail).To(ContainSubstring("exceeds the binary version"))
 	})
 
-	It("skips validation when no binary version can be resolved", func() {
+	It("rejects explicit schemaVersion when no binary version can be resolved", func() {
 		db := newTestDocumentDB("", "0.112.0", "")
 		result := v.validateSchemaVersionNotExceedsBinary(db)
-		Expect(result).To(BeEmpty())
+		Expect(result).To(HaveLen(1))
+		Expect(result[0].Detail).To(ContainSubstring("cannot set an explicit schemaVersion without also setting"))
 	})
 
 	It("rejects when version comparison fails due to unparseable version", func() {

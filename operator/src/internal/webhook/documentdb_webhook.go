@@ -113,7 +113,12 @@ func (v *DocumentDBValidator) validateSchemaVersionNotExceedsBinary(db *dbprevie
 
 	binaryVersion := resolveBinaryVersion(db)
 	if binaryVersion == "" {
-		return nil
+		return field.ErrorList{field.Invalid(
+			field.NewPath("spec", "schemaVersion"),
+			db.Spec.SchemaVersion,
+			"cannot set an explicit schemaVersion without also setting spec.documentDBVersion or spec.documentDBImage; "+
+				"the webhook needs a binary version to validate against",
+		)}
 	}
 
 	schemaExtensionVersion := util.SemverToExtensionVersion(db.Spec.SchemaVersion)
