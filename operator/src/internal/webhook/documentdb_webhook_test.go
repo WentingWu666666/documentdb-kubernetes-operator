@@ -95,6 +95,12 @@ var _ = Describe("schema version validation", func() {
 		result := v.validateSchemaVersionNotExceedsBinary(db)
 		Expect(result).To(BeEmpty())
 	})
+
+	It("allows through when version comparison fails due to unparseable version", func() {
+		db := newTestDocumentDB("invalid", "0.112.0", "")
+		result := v.validateSchemaVersionNotExceedsBinary(db)
+		Expect(result).To(BeEmpty())
+	})
 })
 
 var _ = Describe("image rollback validation", func() {
@@ -144,6 +150,22 @@ var _ = Describe("image rollback validation", func() {
 		Expect(result).To(HaveLen(1))
 		Expect(result[0].Detail).To(ContainSubstring("image rollback blocked"))
 	})
+
+	It("skips validation when new binary version cannot be resolved", func() {
+		oldDB := newTestDocumentDB("", "", "")
+		oldDB.Status.SchemaVersion = "0.112.0"
+		newDB := newTestDocumentDB("", "", "")
+		result := v.validateImageRollback(newDB, oldDB)
+		Expect(result).To(BeEmpty())
+	})
+
+	It("allows through when version comparison fails due to unparseable version", func() {
+		oldDB := newTestDocumentDB("invalid", "", "")
+		oldDB.Status.SchemaVersion = "invalid"
+		newDB := newTestDocumentDB("invalid", "", "")
+		result := v.validateImageRollback(newDB, oldDB)
+		Expect(result).To(BeEmpty())
+	})
 })
 
 var _ = Describe("ValidateCreate admission handler", func() {
@@ -164,6 +186,12 @@ var _ = Describe("ValidateCreate admission handler", func() {
 		db := newTestDocumentDB("0.110.0", "0.112.0", "")
 		_, err := v.ValidateCreate(context.Background(), db)
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("returns error for non-DocumentDB object", func() {
+		_, err := v.ValidateCreate(context.Background(), &dbpreview.Backup{})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("expected DocumentDB"))
 	})
 })
 
@@ -197,6 +225,20 @@ var _ = Describe("ValidateUpdate admission handler", func() {
 		newDB := newTestDocumentDB("0.110.0", "0.112.0", "")
 		_, err := v.ValidateUpdate(context.Background(), oldDB, newDB)
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("returns error when newObj is not a DocumentDB", func() {
+		oldDB := newTestDocumentDB("0.110.0", "", "")
+		_, err := v.ValidateUpdate(context.Background(), oldDB, &dbpreview.Backup{})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("expected DocumentDB"))
+	})
+
+	It("returns error when oldObj is not a DocumentDB", func() {
+		newDB := newTestDocumentDB("0.112.0", "", "")
+		_, err := v.ValidateUpdate(context.Background(), &dbpreview.Backup{}, newDB)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("expected DocumentDB"))
 	})
 })
 

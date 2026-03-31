@@ -2641,6 +2641,69 @@ var _ = Describe("DocumentDB Controller", func() {
 			Expect(sqlCalls).To(HaveLen(1))
 		})
 
+		It("should handle unparseable binary version gracefully", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			desiredCluster := cluster.DeepCopy()
+
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					SchemaVersion: "0.110.0",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			sqlCalls := []string{}
+			reconciler := &DocumentDBReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: recorder,
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
+					sqlCalls = append(sqlCalls, sql)
+					// Return unparseable binary version
+					return " default_version | installed_version \n-----------------+-------------------\n invalid         | 0.109-0           \n", nil
+				},
+			}
+
+			err := reconciler.upgradeDocumentDBIfNeeded(ctx, cluster, desiredCluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Only version-check SQL called, no ALTER EXTENSION (graceful skip)
+			Expect(sqlCalls).To(HaveLen(1))
+		})
+
 		// Note: Image rollback blocking is now enforced by the validating webhook at
 		// admission time. The controller no longer needs to check for this case.
 	})
