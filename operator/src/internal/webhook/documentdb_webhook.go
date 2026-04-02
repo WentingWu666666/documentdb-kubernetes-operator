@@ -6,6 +6,7 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -40,6 +41,9 @@ func (v *DocumentDBValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
+// NOTE: The kubebuilder marker below is used for local development with `make run`.
+// For Helm-based deployments, the authoritative webhook configuration is in
+// operator/documentdb-helm-chart/templates/10_documentdb_webhook.yaml.
 // +kubebuilder:webhook:path=/validate-documentdb-io-preview-documentdb,mutating=false,failurePolicy=fail,sideEffects=None,groups=documentdb.io,resources=dbs,verbs=create;update,versions=preview,name=vdocumentdb.kb.io,admissionReviewVersions=v1
 
 // ValidateCreate validates a DocumentDB resource on creation.
@@ -231,7 +235,14 @@ func extractSemver(tag string) string {
 	if len(parts) < 3 {
 		return ""
 	}
-	// Third part may have a suffix (e.g., "0-amd64"), take only digits
+	// Validate major and minor are numeric
+	if _, err := strconv.Atoi(parts[0]); err != nil {
+		return ""
+	}
+	if _, err := strconv.Atoi(parts[1]); err != nil {
+		return ""
+	}
+	// Third part may have a suffix (e.g., "0-amd64"), take only leading digits
 	thirdPart := parts[2]
 	i := 0
 	for i < len(thirdPart) && thirdPart[i] >= '0' && thirdPart[i] <= '9' {

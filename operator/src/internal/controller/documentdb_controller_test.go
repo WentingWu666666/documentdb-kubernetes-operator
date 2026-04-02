@@ -2357,6 +2357,11 @@ var _ = Describe("DocumentDB Controller", func() {
 			updatedDB := &dbpreview.DocumentDB{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
 			Expect(updatedDB.Status.SchemaVersion).To(Equal("0.109.0"))
+
+			// SchemaUpdateAvailable event should have been emitted
+			Expect(recorder.Events).To(HaveLen(1))
+			event := <-recorder.Events
+			Expect(event).To(ContainSubstring("SchemaUpdateAvailable"))
 		})
 
 		It("should run ALTER EXTENSION when schemaVersion is 'auto'", func() {

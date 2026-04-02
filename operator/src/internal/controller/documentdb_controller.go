@@ -1044,10 +1044,11 @@ func (r *DocumentDBReconciler) determineSchemaTarget(
 			"Set spec.schemaVersion to finalize the upgrade.",
 			"binaryVersion", binaryVersion,
 			"installedVersion", installedVersion)
-		// Only emit the event when the schema upgrade is newly detected (avoids
-		// flooding the event stream on every reconcile loop). Kubernetes deduplicates
-		// events with the same reason+message, but skipping entirely is cleaner.
-		if r.Recorder != nil && documentdb.Status.SchemaVersion != util.ExtensionVersionToSemver(installedVersion) {
+		// Only emit the event when the binary is actually ahead of the installed schema
+		// (avoids firing on new clusters where status.schemaVersion is empty).
+		// Kubernetes deduplicates events with the same reason+message, but skipping
+		// entirely is cleaner.
+		if r.Recorder != nil && binaryVersion != installedVersion {
 			msg := fmt.Sprintf(
 				"Schema update available: binary version is %s, schema is at %s. "+
 					"Set spec.schemaVersion to %q or \"auto\" to finalize the upgrade.",
@@ -1098,6 +1099,10 @@ func (r *DocumentDBReconciler) determineSchemaTarget(
 			return "", ""
 		}
 
+		// Safety: targetPgVersion is derived from spec.schemaVersion via SemverToExtensionVersion,
+		// which produces a "Major.Minor-Patch" string (e.g., "0.112-0"). The input is validated
+		// by the CRD schema regex pattern and the validating webhook's version parsing, so it
+		// contains only digits, dots, and hyphens — no SQL injection risk.
 		return targetPgVersion, fmt.Sprintf("ALTER EXTENSION documentdb UPDATE TO '%s'", targetPgVersion)
 	}
 }

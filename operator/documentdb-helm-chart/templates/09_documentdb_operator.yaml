@@ -28,6 +28,29 @@ spec:
         - containerPort: 9443
           name: webhook-server
           protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        # Readiness probe gates the Service endpoint so the API server cannot
+        # route webhook requests until the TLS cert is loaded (CNPG pattern).
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        startupProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          failureThreshold: 30
+          periodSeconds: 2
         volumeMounts:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: webhook-cert
@@ -52,3 +75,7 @@ spec:
         secret:
           secretName: documentdb-webhook-tls
           defaultMode: 420
+          # Allow the pod to start before cert-manager creates the Secret.
+          # The webhook server (and readiness probe) will stay unhealthy until
+          # the cert files appear, keeping the pod out of the Service endpoints.
+          optional: true

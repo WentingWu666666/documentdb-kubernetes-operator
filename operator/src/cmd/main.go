@@ -279,6 +279,14 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
+	// Gate readiness on webhook server startup so the Service has no ready
+	// endpoints until the TLS cert is loaded. This prevents the API server
+	// from routing admission requests to an operator that cannot serve them
+	// (matching CNPG's readiness-probe pattern for failurePolicy: Fail).
+	if err := mgr.AddReadyzCheck("webhook", webhookServer.StartedChecker()); err != nil {
+		setupLog.Error(err, "unable to set up webhook ready check")
+		os.Exit(1)
+	}
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

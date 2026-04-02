@@ -308,4 +308,12 @@ var _ = Describe("extractSemver helper", func() {
 	It("returns empty for empty string", func() {
 		Expect(extractSemver("")).To(BeEmpty())
 	})
+
+	It("returns empty for non-numeric major", func() {
+		Expect(extractSemver("abc.112.0")).To(BeEmpty())
+	})
+
+	It("returns empty for non-numeric minor", func() {
+		Expect(extractSemver("0.abc.0")).To(BeEmpty())
+	})
 })

@@ -109,6 +109,9 @@ helm rollback documentdb-operator -n documentdb-operator
 
 ## Upgrading DocumentDB Clusters
 
+!!! warning "Migration note for existing clusters"
+    If you are upgrading from operator version 0.2.0 or earlier, the new operator introduces a validating webhook and the `spec.schemaVersion` field. After upgrading the operator, your existing clusters will continue to work without changes — `schemaVersion` defaults to unset (binary-only upgrades). No action is needed unless you want to enable automatic schema upgrades via `schemaVersion: "auto"`.
+
 Upgrading a DocumentDB cluster has two dimensions: the **binary** (container images) and the **schema** (database catalog). You control each independently:
 
 | Field | What It Does | Reversible? |
