@@ -173,6 +173,15 @@ func (v *DocumentDBValidator) validateImageRollback(newDB, oldDB *dbpreview.Docu
 		return nil
 	}
 
+	// Only check rollback when an image-related field is actually changing.
+	// This avoids false positives on unrelated patches (e.g., PV reclaim policy)
+	// where the image tag may not represent the extension version (e.g., CI tags
+	// like "0.2.0-test-12345" where 0.2.0 is the chart version, not the extension).
+	if newDB.Spec.DocumentDBVersion == oldDB.Spec.DocumentDBVersion &&
+		newDB.Spec.DocumentDBImage == oldDB.Spec.DocumentDBImage {
+		return nil
+	}
+
 	newBinaryVersion := resolveBinaryVersion(newDB)
 	if newBinaryVersion == "" {
 		return nil

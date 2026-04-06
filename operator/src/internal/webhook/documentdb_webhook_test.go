@@ -161,10 +161,19 @@ var _ = Describe("image rollback validation", func() {
 		Expect(result).To(BeEmpty())
 	})
 
+	It("skips validation when image fields are unchanged (non-image patch)", func() {
+		oldDB := newTestDocumentDB("0.112.0", "", "")
+		oldDB.Status.SchemaVersion = "0.112.0"
+		// Same documentDBVersion, no image change — e.g., PV reclaim policy patch
+		newDB := newTestDocumentDB("0.112.0", "", "")
+		result := v.validateImageRollback(newDB, oldDB)
+		Expect(result).To(BeEmpty())
+	})
+
 	It("rejects when version comparison fails due to unparseable version", func() {
-		oldDB := newTestDocumentDB("invalid", "", "")
+		oldDB := newTestDocumentDB("invalid-old", "", "")
 		oldDB.Status.SchemaVersion = "invalid"
-		newDB := newTestDocumentDB("invalid", "", "")
+		newDB := newTestDocumentDB("invalid-new", "", "")
 		result := v.validateImageRollback(newDB, oldDB)
 		Expect(result).To(HaveLen(1))
 		Expect(result[0].Detail).To(ContainSubstring("version comparison failed"))
