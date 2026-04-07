@@ -1210,9 +1210,10 @@ jobs:
         echo "Current schema version:  $CURRENT_SCHEMA"
         echo "Attempting rollback to:  $ROLLBACK_IMAGE (synthetic lower version)"
         
-        # This SHOULD fail — the webhook must reject rollback below schema version
+        # This SHOULD fail — the webhook must reject rollback below schema version.
+        # Patch both documentDBImage and schemaVersion to exercise both validation paths.
         PATCH_OUTPUT=$(kubectl patch documentdb $DB_NAME -n $DB_NS --type='merge' \
-          -p "{\"spec\":{\"documentDBImage\":\"$ROLLBACK_IMAGE\"}}" 2>&1) && {
+          -p "{\"spec\":{\"documentDBImage\":\"$ROLLBACK_IMAGE\",\"schemaVersion\":\"$CURRENT_SCHEMA\"}}" 2>&1) && {
           echo "❌ Webhook did NOT reject the rollback — patch succeeded unexpectedly"
           echo "Output: $PATCH_OUTPUT"
           exit 1
@@ -1249,11 +1250,14 @@ jobs:
         
         # Use an artificially high version that exceeds any binary
         INVALID_SCHEMA="99.999.0"
+        CURRENT_IMAGE=$(kubectl get documentdb $DB_NAME -n $DB_NS -o jsonpath='{.spec.documentDBImage}')
         echo "Attempting schemaVersion: $INVALID_SCHEMA"
+        echo "Current documentDBImage:  $CURRENT_IMAGE"
         
-        # This SHOULD fail — the webhook must reject schema > binary
+        # This SHOULD fail — the webhook must reject schema > binary.
+        # Patch both schemaVersion and documentDBImage to exercise both validation paths.
         PATCH_OUTPUT=$(kubectl patch documentdb $DB_NAME -n $DB_NS --type='merge' \
-          -p "{\"spec\":{\"schemaVersion\":\"$INVALID_SCHEMA\"}}" 2>&1) && {
+          -p "{\"spec\":{\"schemaVersion\":\"$INVALID_SCHEMA\",\"documentDBImage\":\"$CURRENT_IMAGE\"}}" 2>&1) && {
           echo "❌ Webhook did NOT reject the invalid schema version — patch succeeded unexpectedly"
           echo "Output: $PATCH_OUTPUT"
           exit 1
