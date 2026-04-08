@@ -1,0 +1,267 @@
+diff --git a/operator/cnpg-plugins/sidecar-injector/internal/config/config.go b/operator/cnpg-plugins/sidecar-injector/internal/config/config.go
+index 370ae19..a9fca79 100644
+--- a/operator/cnpg-plugins/sidecar-injector/internal/config/config.go
++++ b/operator/cnpg-plugins/sidecar-injector/internal/config/config.go
+@@ -21,0 +22,3 @@ const (
++	monitoringEnabledParameter          = "monitoringEnabled"
++	otelCollectorImageParameter         = "otelCollectorImage"
++	otelConfigMapNameParameter          = "otelConfigMapName"
+@@ -30,0 +34,3 @@ type Configuration struct {
++	MonitoringEnabled          bool
++	OtelCollectorImage         string
++	OtelConfigMapName          string
+@@ -69,0 +76,3 @@ func FromParameters(
++		MonitoringEnabled:          helper.Parameters[monitoringEnabledParameter] == "true",
++		OtelCollectorImage:         helper.Parameters[otelCollectorImageParameter],
++		OtelConfigMapName:          helper.Parameters[otelConfigMapNameParameter],
+diff --git a/operator/cnpg-plugins/sidecar-injector/internal/lifecycle/lifecycle.go b/operator/cnpg-plugins/sidecar-injector/internal/lifecycle/lifecycle.go
+index 07688e5..1fefd6f 100644
+--- a/operator/cnpg-plugins/sidecar-injector/internal/lifecycle/lifecycle.go
++++ b/operator/cnpg-plugins/sidecar-injector/internal/lifecycle/lifecycle.go
+@@ -240,0 +241,63 @@ func (impl Implementation) reconcileMetadata(
++	// Inject OTel Collector sidecar when monitoring is enabled
++	if configuration.MonitoringEnabled && configuration.OtelCollectorImage != "" {
++		log.Printf("Injecting OTel Collector sidecar with image: %s", configuration.OtelCollectorImage)
++
++		// Add ConfigMap volume for operator-generated base.yaml
++		if configuration.OtelConfigMapName != "" {
++			mutatedPod.Spec.Volumes = append(mutatedPod.Spec.Volumes, corev1.Volume{
++				Name: "otel-base-config",
++				VolumeSource: corev1.VolumeSource{
++					ConfigMap: &corev1.ConfigMapVolumeSource{
++						LocalObjectReference: corev1.LocalObjectReference{
++							Name: configuration.OtelConfigMapName,
++						},
++					},
++				},
++			})
++		}
++
++		otelSidecar := &corev1.Container{
++			Name:  "otel-collector",
++			Image: configuration.OtelCollectorImage,
++			Args: []string{
++				"--config=file:/shared/etc/otel/engine_metrics.yaml",
++				"--config=file:/shared/etc/otel/host_metrics.yaml",
++				"--config=file:/base/base.yaml",
++			},
++			Env: []corev1.EnvVar{
++				{
++					Name: "POD_NAME",
++					ValueFrom: &corev1.EnvVarSource{
++						FieldRef: &corev1.ObjectFieldSelector{
++							FieldPath: "metadata.name",
++						},
++					},
++				},
++				{
++					Name:  "PG_CONN_STRING",
++					Value: "host=localhost port=5432 user=streaming_replica dbname=postgres sslmode=disable",
++				},
++			},
++			VolumeMounts: []corev1.VolumeMount{
++				{
++					// Mount the extension ImageVolume to access OTel config files
++					// The CNPG ImageVolume "documentdb" is already a pod-level volume
++					Name:      "documentdb",
++					MountPath: "/shared",
++					ReadOnly:  true,
++				},
++				{
++					Name:      "otel-base-config",
++					MountPath: "/base",
++					ReadOnly:  true,
++				},
++			},
++		}
++
++		err = object.InjectPluginSidecar(mutatedPod, otelSidecar, false)
++		if err != nil {
++			return nil, err
++		}
++		log.Printf("OTel Collector sidecar injected successfully")
++	}
++
+diff --git a/operator/src/api/preview/documentdb_types.go b/operator/src/api/preview/documentdb_types.go
+index 7218533..5b5dbf4 100644
+--- a/operator/src/api/preview/documentdb_types.go
++++ b/operator/src/api/preview/documentdb_types.go
+@@ -108,0 +109,4 @@ type DocumentDBSpec struct {
++
++	// Monitoring configures observability via an OTel Collector sidecar.
++	// +optional
++	Monitoring *MonitoringSpec `json:"monitoring,omitempty"`
+@@ -275,0 +280,28 @@ type IssuerRef struct {
++// MonitoringSpec configures observability via an OTel Collector sidecar.
++type MonitoringSpec struct {
++	// Enabled turns on the OTel Collector sidecar for metrics collection.
++	Enabled bool `json:"enabled,omitempty"`
++
++	// Exporter configures where metrics are sent.
++	// +optional
++	Exporter *ExporterSpec `json:"exporter,omitempty"`
++}
++
++// ExporterSpec configures metric export destinations.
++type ExporterSpec struct {
++	// OTLP configures the OpenTelemetry Protocol exporter.
++	// +optional
++	OTLP *OTLPExporterSpec `json:"otlp,omitempty"`
++}
++
++// OTLPExporterSpec configures the OTLP exporter.
++type OTLPExporterSpec struct {
++	// Endpoint is the OTLP gRPC endpoint (e.g., "otel-collector.monitoring:4317").
++	Endpoint string `json:"endpoint"`
++
++	// Insecure disables TLS for the OTLP connection. Defaults to true for POC.
++	// +kubebuilder:default=true
++	// +optional
++	Insecure bool `json:"insecure,omitempty"`
++}
++
+diff --git a/operator/src/internal/cnpg/cnpg_cluster.go b/operator/src/internal/cnpg/cnpg_cluster.go
+index 614469f..c3afa61 100644
+--- a/operator/src/internal/cnpg/cnpg_cluster.go
++++ b/operator/src/internal/cnpg/cnpg_cluster.go
+@@ -86,0 +87,6 @@ func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, docu
++					// Pass monitoring parameters to plugin for OTel sidecar injection.
++					if documentdb.Spec.Monitoring != nil && documentdb.Spec.Monitoring.Enabled {
++						params["monitoringEnabled"] = "true"
++						params["otelCollectorImage"] = cmp.Or(os.Getenv("OTEL_COLLECTOR_IMAGE"), "otel/opentelemetry-collector-contrib:0.116.0")
++						params["otelConfigMapName"] = documentdb.Name + "-otel-config"
++					}
+diff --git a/operator/src/internal/controller/documentdb_controller.go b/operator/src/internal/controller/documentdb_controller.go
+index 0b265eb..b5b2975 100644
+--- a/operator/src/internal/controller/documentdb_controller.go
++++ b/operator/src/internal/controller/documentdb_controller.go
+@@ -39,0 +40 @@ import (
++	otelcfg "github.com/documentdb/documentdb-operator/internal/otel"
+@@ -175,0 +177,8 @@ func (r *DocumentDBReconciler) Reconcile(ctx context.Context, req ctrl.Request)
++	// Reconcile OTel Collector ConfigMap when monitoring is enabled
++	if documentdb.Spec.Monitoring != nil && documentdb.Spec.Monitoring.Enabled {
++		if err := r.reconcileOtelConfigMap(ctx, documentdb, req.Namespace); err != nil {
++			logger.Error(err, "Failed to reconcile OTel ConfigMap")
++			return ctrl.Result{RequeueAfter: RequeueAfterShort}, nil
++		}
++	}
++
+@@ -1120,0 +1130,31 @@ func (r *DocumentDBReconciler) updateImageStatus(ctx context.Context, documentdb
++
++// reconcileOtelConfigMap ensures the OTel Collector base config ConfigMap exists and is up-to-date.
++func (r *DocumentDBReconciler) reconcileOtelConfigMap(ctx context.Context, documentdb *dbpreview.DocumentDB, namespace string) error {
++	logger := log.FromContext(ctx)
++	cmName := otelcfg.ConfigMapName(documentdb.Name)
++
++	cm := &corev1.ConfigMap{}
++	cm.Name = cmName
++	cm.Namespace = namespace
++
++	result, err := controllerutil.CreateOrUpdate(ctx, r.Client, cm, func() error {
++		if cm.Labels == nil {
++			cm.Labels = map[string]string{}
++		}
++		cm.Labels["app.kubernetes.io/managed-by"] = "documentdb-operator"
++		cm.Labels["app.kubernetes.io/component"] = "otel-collector"
++
++		baseYAML := otelcfg.GenerateBaseYAML(documentdb.Name, namespace, documentdb.Spec.Monitoring)
++		cm.Data = map[string]string{
++			"base.yaml": baseYAML,
++		}
++		return nil
++	})
++	if err != nil {
++		return fmt.Errorf("failed to reconcile OTel ConfigMap %s: %w", cmName, err)
++	}
++	if result != controllerutil.OperationResultNone {
++		logger.Info("OTel ConfigMap reconciled", "name", cmName, "operation", result)
++	}
++	return nil
++}
+diff --git a/operator/src/internal/otel/config.go b/operator/src/internal/otel/config.go
+new file mode 100644
+index 0000000..ebaf17c
+--- /dev/null
++++ b/operator/src/internal/otel/config.go
+@@ -0,0 +1,81 @@
++// Copyright (c) Microsoft Corporation.
++// Licensed under the MIT License.
++
++package otel
++
++import (
++	"fmt"
++	"strings"
++
++	dbpreview "github.com/documentdb/documentdb-operator/api/preview"
++)
++
++// ConfigMapName returns the OTel ConfigMap name for a given DocumentDB cluster.
++func ConfigMapName(clusterName string) string {
++	return fmt.Sprintf("%s-otel-config", clusterName)
++}
++
++// GenerateBaseYAML generates the OTel Collector base.yaml content from a MonitoringSpec.
++// This config defines exporters, processors, and the service pipeline.
++// Receivers are defined in engine_metrics.yaml and host_metrics.yaml (shipped in the extension image).
++func GenerateBaseYAML(clusterName, namespace string, spec *dbpreview.MonitoringSpec) string {
++	var b strings.Builder
++
++	b.WriteString("# Auto-generated by documentdb-operator. Do not edit.\n")
++	b.WriteString("receivers:\n")
++	b.WriteString("  otlp:\n")
++	b.WriteString("    protocols:\n")
++	b.WriteString("      grpc:\n")
++	b.WriteString("        endpoint: \"0.0.0.0:4317\"\n")
++	b.WriteString("\n")
++
++	b.WriteString("processors:\n")
++	b.WriteString("  batch:\n")
++	b.WriteString("    send_batch_size: 1024\n")
++	b.WriteString("    timeout: 5s\n")
++	b.WriteString("\n")
++	b.WriteString("  resource:\n")
++	b.WriteString("    attributes:\n")
++	b.WriteString(fmt.Sprintf("      - key: documentdb.cluster\n        value: %q\n        action: upsert\n", clusterName))
++	b.WriteString(fmt.Sprintf("      - key: k8s.namespace.name\n        value: %q\n        action: upsert\n", namespace))
++	b.WriteString("      - key: k8s.pod.name\n        value: ${POD_NAME}\n        action: upsert\n")
++	b.WriteString("\n")
++
++	// Exporters
++	b.WriteString("exporters:\n")
++	b.WriteString("  debug:\n")
++	b.WriteString("    verbosity: basic\n")
++
++	exporterNames := []string{"debug"}
++
++	if spec.Exporter != nil && spec.Exporter.OTLP != nil && spec.Exporter.OTLP.Endpoint != "" {
++		insecure := spec.Exporter.OTLP.Insecure
++		b.WriteString("  otlp:\n")
++		b.WriteString(fmt.Sprintf("    endpoint: %q\n", spec.Exporter.OTLP.Endpoint))
++		b.WriteString("    tls:\n")
++		b.WriteString(fmt.Sprintf("      insecure: %t\n", insecure))
++		exporterNames = append(exporterNames, "otlp")
++	}
++
++	b.WriteString("\n")
++
++	// Service pipeline
++	b.WriteString("service:\n")
++	b.WriteString("  pipelines:\n")
++	b.WriteString("    metrics:\n")
++	b.WriteString("      receivers:\n")
++	b.WriteString("        - otlp\n")
++	b.WriteString("        - hostmetrics\n")
++	b.WriteString("        - sqlquery/connections\n")
++	b.WriteString("        - sqlquery/replication\n")
++	b.WriteString("        - sqlquery/index_stats\n")
++	b.WriteString("      processors:\n")
++	b.WriteString("        - resource\n")
++	b.WriteString("        - batch\n")
++	b.WriteString("      exporters:\n")
++	for _, name := range exporterNames {
++		b.WriteString(fmt.Sprintf("        - %s\n", name))
++	}
++
++	return b.String()
++}
