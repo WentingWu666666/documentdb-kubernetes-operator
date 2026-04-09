@@ -45,8 +45,12 @@ func GenerateBaseYAML(clusterName, namespace string, spec *dbpreview.MonitoringS
 	b.WriteString("exporters:\n")
 	b.WriteString("  debug:\n")
 	b.WriteString("    verbosity: basic\n")
+	b.WriteString("  prometheus:\n")
+	b.WriteString("    endpoint: \"0.0.0.0:8889\"\n")
+	b.WriteString("    resource_to_telemetry_conversion:\n")
+	b.WriteString("      enabled: true\n")
 
-	exporterNames := []string{"debug"}
+	exporterNames := []string{"debug", "prometheus"}
 
 	if spec.Exporter != nil && spec.Exporter.OTLP != nil && spec.Exporter.OTLP.Endpoint != "" {
 		insecure := spec.Exporter.OTLP.Insecure
