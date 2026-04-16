@@ -32,6 +32,13 @@ const (
 	PatchPathExtensionImageFmt     = "/spec/postgresql/extensions/%d/image/reference"
 	PatchPathPluginGatewayImageFmt = "/spec/plugins/%d/parameters/gatewayImage"
 
+	// JSON Patch paths — mutable spec fields
+	PatchPathImageName  = "/spec/imageName"
+	PatchPathStorageSize = "/spec/storage/size"
+	PatchPathLogLevel   = "/spec/logLevel"
+	PatchPathAffinity   = "/spec/affinity"
+	PatchPathMaxStopDelay = "/spec/stopDelay"
+
 	// JSON Patch path for restart annotation.
 	// The '/' in the annotation key is escaped as '~1' per RFC 6901 (JSON Pointer).
 	PatchPathRestartAnnotation = "/metadata/annotations/kubectl.kubernetes.io~1restartedAt"
