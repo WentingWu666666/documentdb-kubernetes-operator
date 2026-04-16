@@ -247,17 +247,27 @@ func (impl Implementation) reconcileMetadata(
 		log.Printf("Injecting OTel Collector sidecar with image: %s", configuration.OtelCollectorImage)
 
 		// Add ConfigMap volume for operator-generated config files (static.yaml + dynamic.yaml)
+		// Check for existing volume to be idempotent across CREATE and PATCH operations
 		if configuration.OtelConfigMapName != "" {
-			mutatedPod.Spec.Volumes = append(mutatedPod.Spec.Volumes, corev1.Volume{
-				Name: "otel-config",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: configuration.OtelConfigMapName,
+			otelVolFound := false
+			for _, v := range mutatedPod.Spec.Volumes {
+				if v.Name == "otel-config" {
+					otelVolFound = true
+					break
+				}
+			}
+			if !otelVolFound {
+				mutatedPod.Spec.Volumes = append(mutatedPod.Spec.Volumes, corev1.Volume{
+					Name: "otel-config",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: configuration.OtelConfigMapName,
+							},
 						},
 					},
-				},
-			})
+				})
+			}
 		}
 
 		otelSidecar := &corev1.Container{
