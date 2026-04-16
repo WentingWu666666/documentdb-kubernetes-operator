@@ -19,7 +19,8 @@ import (
 // all fields in a single atomic JSON Patch operation. This is the single entry point
 // for ALL CNPG spec mutations (images + plugin params + replication).
 //
-// Only mutable plugin parameters are synced: gatewayImage and gatewayTLSSecret.
+// Mutable plugin parameters synced: gatewayImage, gatewayTLSSecret, and OTel sidecar
+// params (otelCollectorImage, otelConfigMapName, prometheusPort, otelConfigHash).
 // Other parameters (e.g., documentDbCredentialSecret) are set at cluster creation
 // and do not change during the lifecycle of a DocumentDB resource.
 //
@@ -90,6 +91,28 @@ func SyncCnpgCluster(
 					Value: desiredTLS,
 				})
 				pluginParamsChanged = true
+			}
+
+			// OTel sidecar parameters: add/update when monitoring is enabled,
+			// remove when monitoring is disabled.
+			otelKeys := []string{"otelCollectorImage", "otelConfigMapName", "prometheusPort", "otelConfigHash"}
+			for _, key := range otelKeys {
+				desiredVal := getParam(desiredPlugin.Parameters, key)
+				currentVal := getParam(currentPlugin.Parameters, key)
+				if desiredVal != "" && currentVal != desiredVal {
+					patchOps = append(patchOps, JSONPatch{
+						Op:    PatchOpAdd,
+						Path:  fmt.Sprintf(PatchPathPluginParamFmt, pluginIdx, key),
+						Value: desiredVal,
+					})
+					pluginParamsChanged = true
+				} else if desiredVal == "" && currentVal != "" {
+					patchOps = append(patchOps, JSONPatch{
+						Op:   PatchOpRemove,
+						Path: fmt.Sprintf(PatchPathPluginParamFmt, pluginIdx, key),
+					})
+					pluginParamsChanged = true
+				}
 			}
 		}
 	}
