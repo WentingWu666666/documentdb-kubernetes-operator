@@ -7,10 +7,10 @@ receivers:
     datasource: "host=localhost port=5432 user=${env:PGUSER} password=${env:PGPASSWORD} dbname=postgres sslmode=disable"
     collection_interval: "30s"
     queries:
-      - sql: "SELECT 1 as healthy"
+      - sql: "SELECT 1 as up"
         metrics:
-          - metric_name: documentdb.health
-            value_column: healthy
+          - metric_name: documentdb.postgres.up
+            value_column: up
             data_type: gauge
 
 processors:
