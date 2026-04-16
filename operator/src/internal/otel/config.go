@@ -28,7 +28,17 @@ type collectorConfig struct {
 }
 
 type serviceConfig struct {
+	Telemetry *telemetryConfig          `yaml:"telemetry,omitempty"`
 	Pipelines map[string]pipelineConfig `yaml:"pipelines"`
+}
+
+type telemetryConfig struct {
+	Metrics *telemetryMetricsConfig `yaml:"metrics,omitempty"`
+}
+
+type telemetryMetricsConfig struct {
+	Level   string `yaml:"level,omitempty"`
+	Address string `yaml:"address,omitempty"`
 }
 
 type pipelineConfig struct {
@@ -112,9 +122,16 @@ func generateDynamicConfig(clusterName, namespace string, spec *dbpreview.Monito
 		}
 	}
 
-	// Wire pipeline: receivers + batch from static.yaml, resource from this dynamic config
+	// Wire pipeline: receivers + batch from static.yaml, resource from this dynamic config.
+	// Disable the collector's internal telemetry to avoid port conflicts with the
+	// Prometheus exporter (both default to 8888).
 	if len(exporterNames) > 0 {
 		cfg.Service = serviceConfig{
+			Telemetry: &telemetryConfig{
+				Metrics: &telemetryMetricsConfig{
+					Level: "none",
+				},
+			},
 			Pipelines: map[string]pipelineConfig{
 				"metrics": {
 					Receivers:  []string{"sqlquery"},
