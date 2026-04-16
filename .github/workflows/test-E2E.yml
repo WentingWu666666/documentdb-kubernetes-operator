@@ -328,12 +328,14 @@ jobs:
         POD_NAME=$(kubectl get pods -n $DB_NS -l cnpg.io/cluster=$DB_NAME -o jsonpath='{.items[0].metadata.name}')
         echo "Checking Prometheus metrics on pod $POD_NAME port 9090..."
         
-        # Use kubectl exec into the gateway container (which has curl/wget) to query localhost
-        # The OTel Collector listens on localhost:9090 within the pod
+        # Port-forward to the OTel Collector's Prometheus exporter and curl from the runner
+        kubectl port-forward -n $DB_NS pod/$POD_NAME 19090:9090 &
+        PF_PID=$!
+        sleep 3
+        
         METRICS_FOUND=false
         for attempt in $(seq 1 12); do
-          METRICS=$(kubectl exec -n $DB_NS $POD_NAME -c gateway -- \
-            wget -qO- http://localhost:9090/metrics 2>/dev/null || echo "")
+          METRICS=$(curl -sf http://localhost:19090/metrics 2>/dev/null || echo "")
           if echo "$METRICS" | grep -q "documentdb_postgres_up"; then
             echo "✓ Prometheus metrics endpoint returns documentdb_postgres_up metric"
             METRICS_FOUND=true
@@ -342,6 +344,8 @@ jobs:
           echo "Attempt $attempt: metrics not ready yet, retrying in 5s..."
           sleep 5
         done
+        
+        kill $PF_PID 2>/dev/null || true
         
         if [ "$METRICS_FOUND" != "true" ]; then
           echo "❌ documentdb_postgres_up metric not found in Prometheus output"
