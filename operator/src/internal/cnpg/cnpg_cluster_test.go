@@ -525,6 +525,99 @@ var _ = Describe("GetCnpgClusterSpec", func() {
 		Expect(params).To(HaveKeyWithValue("max_replication_slots", "10"))
 		Expect(params).To(HaveKeyWithValue("max_wal_senders", "10"))
 	})
+
+	It("passes monitoring parameters to plugin when monitoring is enabled", func() {
+		req := ctrl.Request{}
+		req.Name = "test-cluster"
+		req.Namespace = "default"
+
+		documentdb := &dbpreview.DocumentDB{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-cluster",
+				Namespace: "default",
+			},
+			Spec: dbpreview.DocumentDBSpec{
+				InstancesPerNode: 1,
+				Resource: dbpreview.Resource{
+					Storage: dbpreview.StorageConfiguration{
+						PvcSize: "10Gi",
+					},
+				},
+				Monitoring: &dbpreview.MonitoringSpec{
+					Enabled: true,
+					Exporter: &dbpreview.ExporterSpec{
+						OTLP: &dbpreview.OTLPExporterSpec{
+							Endpoint: "otel-collector.monitoring:4317",
+						},
+					},
+				},
+			},
+		}
+
+		cluster := GetCnpgClusterSpec(req, documentdb, "test-image:latest", "test-sa", "", true, log)
+		Expect(cluster.Spec.Plugins).To(HaveLen(1))
+		pluginParams := cluster.Spec.Plugins[0].Parameters
+		Expect(pluginParams).NotTo(HaveKey("monitoringEnabled"))
+		Expect(pluginParams).To(HaveKey("otelCollectorImage"))
+		Expect(pluginParams).To(HaveKeyWithValue("otelConfigMapName", "test-cluster-otel-config"))
+		Expect(pluginParams).NotTo(HaveKey("prometheusPort"))
+	})
+
+	It("passes prometheusPort parameter when Prometheus exporter is configured", func() {
+		req := ctrl.Request{}
+		req.Name = "test-cluster"
+		req.Namespace = "default"
+
+		documentdb := &dbpreview.DocumentDB{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-cluster",
+				Namespace: "default",
+			},
+			Spec: dbpreview.DocumentDBSpec{
+				InstancesPerNode: 1,
+				Resource: dbpreview.Resource{
+					Storage: dbpreview.StorageConfiguration{
+						PvcSize: "10Gi",
+					},
+				},
+				Monitoring: &dbpreview.MonitoringSpec{
+					Enabled: true,
+					Exporter: &dbpreview.ExporterSpec{
+						Prometheus: &dbpreview.PrometheusExporterSpec{Port: 9090},
+					},
+				},
+			},
+		}
+
+		cluster := GetCnpgClusterSpec(req, documentdb, "test-image:latest", "test-sa", "", true, log)
+		pluginParams := cluster.Spec.Plugins[0].Parameters
+		Expect(pluginParams).NotTo(HaveKey("monitoringEnabled"))
+		Expect(pluginParams).To(HaveKeyWithValue("prometheusPort", "9090"))
+	})
+
+	It("does not pass monitoring parameters when monitoring is nil", func() {
+		req := ctrl.Request{}
+		req.Name = "test-cluster"
+		req.Namespace = "default"
+
+		documentdb := &dbpreview.DocumentDB{
+			Spec: dbpreview.DocumentDBSpec{
+				InstancesPerNode: 1,
+				Resource: dbpreview.Resource{
+					Storage: dbpreview.StorageConfiguration{
+						PvcSize: "10Gi",
+					},
+				},
+			},
+		}
+
+		cluster := GetCnpgClusterSpec(req, documentdb, "test-image:latest", "test-sa", "", true, log)
+		Expect(cluster.Spec.Plugins).To(HaveLen(1))
+		pluginParams := cluster.Spec.Plugins[0].Parameters
+		Expect(pluginParams).NotTo(HaveKey("monitoringEnabled"))
+		Expect(pluginParams).NotTo(HaveKey("otelCollectorImage"))
+		Expect(pluginParams).NotTo(HaveKey("otelConfigMapName"))
+	})
 })
 
 // Standard Go tests for additional coverage

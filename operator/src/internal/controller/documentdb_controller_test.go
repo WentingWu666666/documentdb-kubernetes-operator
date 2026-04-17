@@ -2844,6 +2844,9 @@ var _ = Describe("DocumentDB Controller", func() {
 							PvcSize: "1Gi",
 						},
 					},
+					Monitoring: &dbpreview.MonitoringSpec{
+						Enabled: true,
+					},
 				},
 			}
 
@@ -3107,6 +3110,236 @@ var _ = Describe("DocumentDB Controller", func() {
 			err := reconciler.validateK8sVersion()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to parse Kubernetes major version"))
+		})
+	})
+
+	Describe("reconcileOtelConfigMap", func() {
+		It("creates an OTel ConfigMap when monitoring is enabled", func() {
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      documentDBName,
+					Namespace: documentDBNamespace,
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					Monitoring: &dbpreview.MonitoringSpec{
+						Enabled: true,
+						Exporter: &dbpreview.ExporterSpec{
+							OTLP: &dbpreview.OTLPExporterSpec{
+								Endpoint: "otel-collector:4317",
+							},
+						},
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.reconcileOtelConfigMap(ctx, documentdb, documentDBNamespace)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify ConfigMap was created
+			cm := &corev1.ConfigMap{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      documentDBName + "-otel-config",
+				Namespace: documentDBNamespace,
+			}, cm)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cm.Data).To(HaveKey("static.yaml"))
+			Expect(cm.Data).To(HaveKey("dynamic.yaml"))
+			Expect(cm.Data["dynamic.yaml"]).To(ContainSubstring("otel-collector:4317"))
+			Expect(cm.Data["dynamic.yaml"]).To(ContainSubstring(documentDBName))
+		})
+
+		It("updates an existing OTel ConfigMap when monitoring spec changes", func() {
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      documentDBName,
+					Namespace: documentDBNamespace,
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					Monitoring: &dbpreview.MonitoringSpec{
+						Enabled: true,
+					},
+				},
+			}
+
+			existingCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      documentDBName + "-otel-config",
+					Namespace: documentDBNamespace,
+				},
+				Data: map[string]string{
+					"static.yaml":  "old-static",
+					"dynamic.yaml": "old-dynamic",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(existingCM).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.reconcileOtelConfigMap(ctx, documentdb, documentDBNamespace)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify ConfigMap was updated
+			cm := &corev1.ConfigMap{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      documentDBName + "-otel-config",
+				Namespace: documentDBNamespace,
+			}, cm)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cm.Data["dynamic.yaml"]).NotTo(Equal("old-dynamic"))
+			Expect(cm.Data["dynamic.yaml"]).To(ContainSubstring("documentdb.cluster"))
+		})
+
+		It("does not create ConfigMap when monitoring is disabled", func() {
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      documentDBName,
+					Namespace: documentDBNamespace,
+					UID:       "test-uid",
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					Monitoring: &dbpreview.MonitoringSpec{
+						Enabled: false,
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			// When monitoring is disabled, deleteOtelConfigMap is called instead of reconcile.
+			// Verify no ConfigMap exists after deletion attempt (no-op when it doesn't exist).
+			err := reconciler.deleteOtelConfigMap(ctx, documentdb.Name, documentDBNamespace)
+			Expect(err).NotTo(HaveOccurred())
+
+			cm := &corev1.ConfigMap{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      documentDBName + "-otel-config",
+				Namespace: documentDBNamespace,
+			}, cm)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("returns error when owner reference cannot be set", func() {
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      documentDBName,
+					Namespace: "different-namespace",
+					UID:       "test-uid",
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					Monitoring: &dbpreview.MonitoringSpec{
+						Enabled: true,
+						Exporter: &dbpreview.ExporterSpec{
+							Prometheus: &dbpreview.PrometheusExporterSpec{Port: 9090},
+						},
+					},
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.reconcileOtelConfigMap(ctx, documentdb, documentDBNamespace)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("owner reference"))
+		})
+	})
+
+	Describe("deleteOtelConfigMap", func() {
+		It("deletes an existing OTel ConfigMap", func() {
+			existing := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      documentDBName + "-otel-config",
+					Namespace: documentDBNamespace,
+				},
+				Data: map[string]string{
+					"static.yaml":  "old",
+					"dynamic.yaml": "old",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(existing).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.deleteOtelConfigMap(ctx, documentDBName, documentDBNamespace)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify ConfigMap was deleted
+			cm := &corev1.ConfigMap{}
+			err = fakeClient.Get(ctx, types.NamespacedName{
+				Name:      documentDBName + "-otel-config",
+				Namespace: documentDBNamespace,
+			}, cm)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("succeeds when ConfigMap does not exist", func() {
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.deleteOtelConfigMap(ctx, documentDBName, documentDBNamespace)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("returns error when delete fails with non-NotFound error", func() {
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Delete: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+						return fmt.Errorf("simulated delete failure")
+					},
+				}).
+				Build()
+
+			reconciler := &DocumentDBReconciler{
+				Client: fakeClient,
+				Scheme: scheme,
+			}
+
+			err := reconciler.deleteOtelConfigMap(ctx, documentDBName, documentDBNamespace)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("failed to delete OTel ConfigMap"))
 		})
 	})
 })

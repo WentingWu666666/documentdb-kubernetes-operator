@@ -5,6 +5,7 @@ package cnpg
 
 import (
 	"cmp"
+	"fmt"
 	"os"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
@@ -14,6 +15,7 @@ import (
 	"k8s.io/utils/pointer"
 
 	dbpreview "github.com/documentdb/documentdb-operator/api/preview"
+	otelcfg "github.com/documentdb/documentdb-operator/internal/otel"
 	util "github.com/documentdb/documentdb-operator/internal/utils"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -84,6 +86,24 @@ func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, docu
 					// If TLS is ready, surface secret name to plugin so it can mount certs.
 					if documentdb.Status.TLS != nil && documentdb.Status.TLS.Ready && documentdb.Status.TLS.SecretName != "" {
 						params["gatewayTLSSecret"] = documentdb.Status.TLS.SecretName
+					}
+					// Pass monitoring parameters to plugin for OTel sidecar injection.
+					// Sidecar is only injected when monitoring is enabled.
+					// Config hash triggers operator-initiated rolling restart on config changes.
+					if documentdb.Spec.Monitoring != nil && documentdb.Spec.Monitoring.Enabled {
+						params["otelCollectorImage"] = util.DEFAULT_OTEL_COLLECTOR_IMAGE
+						params["otelConfigMapName"] = otelcfg.ConfigMapName(documentdb.Name)
+						if promPort := otelcfg.ResolvePrometheusPort(documentdb.Spec.Monitoring); promPort > 0 {
+							params["prometheusPort"] = fmt.Sprintf("%d", promPort)
+						}
+						// Compute config hash for change detection. The operator triggers a
+						// rolling restart (via restart annotation) when plugin parameters
+						// change, ensuring pods pick up new config.
+						if configData, err := otelcfg.GenerateConfigMapData(documentdb.Name, req.Namespace, documentdb.Spec.Monitoring); err == nil {
+							params["otelConfigHash"] = otelcfg.HashConfigMapData(configData)
+						} else {
+							log.Error(err, "Failed to generate OTel config hash; config changes may not trigger rolling restart")
+						}
 					}
 					return []cnpgv1.PluginConfiguration{{
 						Name:       sidecarPluginName,

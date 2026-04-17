@@ -271,6 +271,12 @@ jobs:
         
         echo "✅ DocumentDB status validation passed"
 
+    - name: Test OTel monitoring sidecar enable/disable
+      run: |
+        echo "Testing OTel Collector sidecar injection on ${{ matrix.architecture }}..."
+        chmod +x operator/src/scripts/test-scripts/test-otel-monitoring.sh
+        operator/src/scripts/test-scripts/test-otel-monitoring.sh
+
     - name: Test cluster health and monitoring
       run: |
         echo "Testing cluster health and monitoring on ${{ matrix.architecture }}..."

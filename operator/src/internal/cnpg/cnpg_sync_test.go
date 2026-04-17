@@ -268,6 +268,69 @@ var _ = Describe("SyncCnpgCluster", func() {
 		// Restart annotation because gateway updated (no extension change)
 		Expect(updated.Annotations).To(HaveKey("kubectl.kubernetes.io/restartedAt"))
 	})
+
+	It("adds OTel sidecar parameters when monitoring is enabled", func() {
+		current := baseCluster("test-cluster", namespace)
+		desired := current.DeepCopy()
+		desired.Spec.Plugins[0].Parameters["otelCollectorImage"] = "otel/opentelemetry-collector-contrib:0.149.0"
+		desired.Spec.Plugins[0].Parameters["otelConfigMapName"] = "test-cluster-otel-config"
+		desired.Spec.Plugins[0].Parameters["prometheusPort"] = "9090"
+		desired.Spec.Plugins[0].Parameters["otelConfigHash"] = "abc123"
+
+		c := buildFakeClient(current).Build()
+		err := SyncCnpgCluster(context.Background(), c, current, desired, nil)
+		Expect(err).ToNot(HaveOccurred())
+
+		updated := &cnpgv1.Cluster{}
+		Expect(c.Get(context.Background(), types.NamespacedName{Name: "test-cluster", Namespace: namespace}, updated)).To(Succeed())
+		Expect(updated.Spec.Plugins[0].Parameters["otelCollectorImage"]).To(Equal("otel/opentelemetry-collector-contrib:0.149.0"))
+		Expect(updated.Spec.Plugins[0].Parameters["otelConfigMapName"]).To(Equal("test-cluster-otel-config"))
+		Expect(updated.Spec.Plugins[0].Parameters["prometheusPort"]).To(Equal("9090"))
+		Expect(updated.Spec.Plugins[0].Parameters["otelConfigHash"]).To(Equal("abc123"))
+		Expect(updated.Annotations).To(HaveKey("kubectl.kubernetes.io/restartedAt"))
+	})
+
+	It("removes OTel sidecar parameters when monitoring is disabled", func() {
+		current := baseCluster("test-cluster", namespace)
+		current.Spec.Plugins[0].Parameters["otelCollectorImage"] = "otel/opentelemetry-collector-contrib:0.149.0"
+		current.Spec.Plugins[0].Parameters["otelConfigMapName"] = "test-cluster-otel-config"
+		current.Spec.Plugins[0].Parameters["prometheusPort"] = "9090"
+		current.Spec.Plugins[0].Parameters["otelConfigHash"] = "abc123"
+
+		desired := baseCluster("test-cluster", namespace)
+		// desired has no OTel params → monitoring disabled
+
+		c := buildFakeClient(current).Build()
+		err := SyncCnpgCluster(context.Background(), c, current, desired, nil)
+		Expect(err).ToNot(HaveOccurred())
+
+		updated := &cnpgv1.Cluster{}
+		Expect(c.Get(context.Background(), types.NamespacedName{Name: "test-cluster", Namespace: namespace}, updated)).To(Succeed())
+		Expect(updated.Spec.Plugins[0].Parameters).ToNot(HaveKey("otelCollectorImage"))
+		Expect(updated.Spec.Plugins[0].Parameters).ToNot(HaveKey("otelConfigMapName"))
+		Expect(updated.Spec.Plugins[0].Parameters).ToNot(HaveKey("prometheusPort"))
+		Expect(updated.Spec.Plugins[0].Parameters).ToNot(HaveKey("otelConfigHash"))
+		Expect(updated.Annotations).To(HaveKey("kubectl.kubernetes.io/restartedAt"))
+	})
+
+	It("detects OTel config hash changes", func() {
+		current := baseCluster("test-cluster", namespace)
+		current.Spec.Plugins[0].Parameters["otelCollectorImage"] = "otel/opentelemetry-collector-contrib:0.149.0"
+		current.Spec.Plugins[0].Parameters["otelConfigMapName"] = "test-cluster-otel-config"
+		current.Spec.Plugins[0].Parameters["otelConfigHash"] = "old-hash"
+
+		desired := current.DeepCopy()
+		desired.Spec.Plugins[0].Parameters["otelConfigHash"] = "new-hash"
+
+		c := buildFakeClient(current).Build()
+		err := SyncCnpgCluster(context.Background(), c, current, desired, nil)
+		Expect(err).ToNot(HaveOccurred())
+
+		updated := &cnpgv1.Cluster{}
+		Expect(c.Get(context.Background(), types.NamespacedName{Name: "test-cluster", Namespace: namespace}, updated)).To(Succeed())
+		Expect(updated.Spec.Plugins[0].Parameters["otelConfigHash"]).To(Equal("new-hash"))
+		Expect(updated.Annotations).To(HaveKey("kubectl.kubernetes.io/restartedAt"))
+	})
 })
 
 var _ = Describe("Helper functions", func() {

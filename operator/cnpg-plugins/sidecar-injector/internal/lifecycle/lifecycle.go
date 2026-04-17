@@ -7,6 +7,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 
 	"github.com/cloudnative-pg/cnpg-i-machinery/pkg/pluginhelper/common"
@@ -14,6 +15,7 @@ import (
 	"github.com/cloudnative-pg/cnpg-i-machinery/pkg/pluginhelper/object"
 	"github.com/cloudnative-pg/cnpg-i/pkg/lifecycle"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/pointer"
 
 	"github.com/documentdb/cnpg-i-sidecar-injector/internal/config"
@@ -49,7 +51,7 @@ func (impl Implementation) GetCapabilities(
 	}, nil
 }
 
-// LifecycleHook is called when creating Kubernetes services
+// LifecycleHook is called by CNPG for Pod CREATE/PATCH/UPDATE operations
 func (impl Implementation) LifecycleHook(
 	ctx context.Context,
 	request *lifecycle.OperatorLifecycleRequest,
@@ -77,7 +79,7 @@ func (impl Implementation) LifecycleHook(
 	return &lifecycle.OperatorLifecycleResponse{}, nil
 }
 
-// LifecycleHook is called when creating Kubernetes services
+// reconcileMetadata mutates Pod metadata, injects sidecars, and applies labels/annotations.
 func (impl Implementation) reconcileMetadata(
 	ctx context.Context,
 	request *lifecycle.OperatorLifecycleRequest,
@@ -129,13 +131,8 @@ func (impl Implementation) reconcileMetadata(
 
 	mutatedPod := pod.DeepCopy()
 
-	// Initialize environment variables
-	envVars := []corev1.EnvVar{
-		{
-			Name:  "OTEL_EXPORTER_OTLP_ENDPOINT",
-			Value: "http://" + cluster.Name + "-collector." + cluster.Namespace + ".svc.cluster.local:4317",
-		},
-	}
+	// Initialize environment variables for the gateway container
+	envVars := []corev1.EnvVar{}
 
 	// Add USERNAME and PASSWORD environment variables from secret defined in configuration
 	credentialSecretName := configuration.DocumentDbCredentialSecret
@@ -236,6 +233,135 @@ func (impl Implementation) reconcileMetadata(
 	err = object.InjectPluginSidecar(mutatedPod, sidecar, false)
 	if err != nil {
 		return nil, err
+	}
+
+	// Inject OTel Collector sidecar when monitoring is enabled.
+	// The sidecar is only injected when the operator passes otelCollectorImage
+	// and otelConfigMapName parameters (i.e., monitoring.enabled is true).
+	if configuration.OtelCollectorImage != "" && configuration.OtelConfigMapName != "" {
+		log.Printf("Injecting OTel Collector sidecar with image: %s", configuration.OtelCollectorImage)
+
+		// Add ConfigMap volume for operator-generated config files (static.yaml + dynamic.yaml)
+		// Check for existing volume to be idempotent across CREATE and PATCH operations
+		otelVolFound := false
+		for _, v := range mutatedPod.Spec.Volumes {
+			if v.Name == "otel-config" {
+				otelVolFound = true
+				break
+			}
+		}
+		if !otelVolFound {
+			mutatedPod.Spec.Volumes = append(mutatedPod.Spec.Volumes, corev1.Volume{
+				Name: "otel-config",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: configuration.OtelConfigMapName,
+						},
+					},
+				},
+			})
+		}
+
+		otelSidecar := &corev1.Container{
+			Name:  "otel-collector",
+			Image: configuration.OtelCollectorImage,
+			Args: []string{
+				"--config=file:/config/static.yaml",
+				"--config=file:/config/dynamic.yaml",
+			},
+			// PGUSER and PGPASSWORD are sourced from the CNPG-managed application secret
+			// ("<cluster>-app"). CNPG auto-creates this secret with "username" and "password"
+			// keys for the application database user. The OTel Collector's sqlquery receiver
+			// uses these credentials to connect to PostgreSQL and collect health metrics.
+			Env: []corev1.EnvVar{
+				{
+					Name: "POD_NAME",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{
+							FieldPath: "metadata.name",
+						},
+					},
+				},
+				{
+					Name: "PGUSER",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: cluster.Name + "-app",
+							},
+							Key: "username",
+						},
+					},
+				},
+				{
+					Name: "PGPASSWORD",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: cluster.Name + "-app",
+							},
+							Key: "password",
+						},
+					},
+				},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{
+					Name:      "otel-config",
+					MountPath: "/config",
+					ReadOnly:  true,
+				},
+			},
+		}
+
+		// Expose Prometheus metrics port when configured
+		if configuration.PrometheusPort > 0 {
+			otelSidecar.Ports = append(otelSidecar.Ports, corev1.ContainerPort{
+				Name:          "prom-metrics",
+				ContainerPort: configuration.PrometheusPort,
+				Protocol:      corev1.ProtocolTCP,
+			})
+			// Add Prometheus scrape annotations for auto-discovery
+			if mutatedPod.Annotations == nil {
+				mutatedPod.Annotations = map[string]string{}
+			}
+			mutatedPod.Annotations["prometheus.io/scrape"] = "true"
+			mutatedPod.Annotations["prometheus.io/port"] = fmt.Sprintf("%d", configuration.PrometheusPort)
+			mutatedPod.Annotations["prometheus.io/path"] = "/metrics"
+
+			// Add readiness probe for Prometheus endpoint
+			otelSidecar.ReadinessProbe = &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					HTTPGet: &corev1.HTTPGetAction{
+						Path: "/metrics",
+						Port: intstr.FromInt32(configuration.PrometheusPort),
+					},
+				},
+				InitialDelaySeconds: 5,
+				PeriodSeconds:       10,
+			}
+		}
+
+		err = object.InjectPluginSidecar(mutatedPod, otelSidecar, false)
+		if err != nil {
+			return nil, err
+		}
+
+		// Set OTEL_EXPORTER_OTLP_ENDPOINT on the gateway container so it can
+		// forward its own traces to the co-located OTel Collector sidecar.
+		// Only set when the sidecar is present to avoid connection errors.
+		for i := range mutatedPod.Spec.Containers {
+			if mutatedPod.Spec.Containers[i].Name == "documentdb-gateway" {
+				mutatedPod.Spec.Containers[i].Env = append(mutatedPod.Spec.Containers[i].Env, corev1.EnvVar{
+					Name:  "OTEL_EXPORTER_OTLP_ENDPOINT",
+					Value: "http://localhost:4317",
+				})
+				break
+			}
+		}
+
+		log.Printf("OTel Collector sidecar injected successfully")
 	}
 
 	for key, value := range configuration.Labels {
