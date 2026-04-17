@@ -89,16 +89,16 @@ func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, docu
 					}
 					// Pass monitoring parameters to plugin for OTel sidecar injection.
 					// Sidecar is only injected when monitoring is enabled.
-					// Config hash triggers rolling restart on config changes.
+					// Config hash triggers operator-initiated rolling restart on config changes.
 					if documentdb.Spec.Monitoring != nil && documentdb.Spec.Monitoring.Enabled {
 						params["otelCollectorImage"] = util.DEFAULT_OTEL_COLLECTOR_IMAGE
 						params["otelConfigMapName"] = otelcfg.ConfigMapName(documentdb.Name)
 						if promPort := otelcfg.ResolvePrometheusPort(documentdb.Spec.Monitoring); promPort > 0 {
 							params["prometheusPort"] = fmt.Sprintf("%d", promPort)
 						}
-						// Compute config hash for change detection. CNPG triggers a rolling
-						// restart when plugin parameters change, ensuring pods pick up new
-						// config (e.g., operator upgrade adds new metrics).
+						// Compute config hash for change detection. The operator triggers a
+						// rolling restart (via restart annotation) when plugin parameters
+						// change, ensuring pods pick up new config.
 						if configData, err := otelcfg.GenerateConfigMapData(documentdb.Name, req.Namespace, documentdb.Spec.Monitoring); err == nil {
 							params["otelConfigHash"] = otelcfg.HashConfigMapData(configData)
 						} else {

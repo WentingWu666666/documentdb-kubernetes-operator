@@ -20,7 +20,6 @@ const (
 	gatewayImageParameter               = "gatewayImage"
 	gatewayImagePullPolicyParameter     = "gatewayImagePullPolicy"
 	documentDbCredentialSecretParameter = "documentDbCredentialSecret"
-	monitoringEnabledParameter          = "monitoringEnabled"
 	otelCollectorImageParameter         = "otelCollectorImage"
 	otelConfigMapNameParameter          = "otelConfigMapName"
 	prometheusPortParameter             = "prometheusPort"
@@ -33,7 +32,6 @@ type Configuration struct {
 	GatewayImage               string
 	GatewayImagePullPolicy     corev1.PullPolicy
 	DocumentDbCredentialSecret string
-	MonitoringEnabled          bool
 	OtelCollectorImage         string
 	OtelConfigMapName          string
 	PrometheusPort             int32
@@ -84,7 +82,6 @@ func FromParameters(
 		GatewayImage:               gatewayImage,
 		GatewayImagePullPolicy:     pullPolicy,
 		DocumentDbCredentialSecret: credentialSecret,
-		MonitoringEnabled:          helper.Parameters[monitoringEnabledParameter] == "true",
 		OtelCollectorImage:         helper.Parameters[otelCollectorImageParameter],
 		OtelConfigMapName:          helper.Parameters[otelConfigMapNameParameter],
 		PrometheusPort:             prometheusPort,

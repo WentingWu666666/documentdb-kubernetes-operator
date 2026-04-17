@@ -51,7 +51,7 @@ func (impl Implementation) GetCapabilities(
 	}, nil
 }
 
-// LifecycleHook is called when creating Kubernetes services
+// LifecycleHook is called by CNPG for Pod CREATE/PATCH/UPDATE operations
 func (impl Implementation) LifecycleHook(
 	ctx context.Context,
 	request *lifecycle.OperatorLifecycleRequest,
@@ -79,7 +79,7 @@ func (impl Implementation) LifecycleHook(
 	return &lifecycle.OperatorLifecycleResponse{}, nil
 }
 
-// LifecycleHook is called when creating Kubernetes services
+// reconcileMetadata mutates Pod metadata, injects sidecars, and applies labels/annotations.
 func (impl Implementation) reconcileMetadata(
 	ctx context.Context,
 	request *lifecycle.OperatorLifecycleRequest,
@@ -135,7 +135,7 @@ func (impl Implementation) reconcileMetadata(
 	envVars := []corev1.EnvVar{
 		{
 			Name:  "OTEL_EXPORTER_OTLP_ENDPOINT",
-			Value: "http://" + cluster.Name + "-collector." + cluster.Namespace + ".svc.cluster.local:4317",
+			Value: "http://localhost:4317",
 		},
 	}
 
@@ -240,34 +240,32 @@ func (impl Implementation) reconcileMetadata(
 		return nil, err
 	}
 
-	// Inject OTel Collector sidecar when monitoring config is available.
-	// The sidecar is always present when the monitoring spec exists;
-	// the ConfigMap content controls whether it actively collects or idles.
+	// Inject OTel Collector sidecar when monitoring is enabled.
+	// The sidecar is only injected when the operator passes otelCollectorImage
+	// and otelConfigMapName parameters (i.e., monitoring.enabled is true).
 	if configuration.OtelCollectorImage != "" && configuration.OtelConfigMapName != "" {
 		log.Printf("Injecting OTel Collector sidecar with image: %s", configuration.OtelCollectorImage)
 
 		// Add ConfigMap volume for operator-generated config files (static.yaml + dynamic.yaml)
 		// Check for existing volume to be idempotent across CREATE and PATCH operations
-		if configuration.OtelConfigMapName != "" {
-			otelVolFound := false
-			for _, v := range mutatedPod.Spec.Volumes {
-				if v.Name == "otel-config" {
-					otelVolFound = true
-					break
-				}
+		otelVolFound := false
+		for _, v := range mutatedPod.Spec.Volumes {
+			if v.Name == "otel-config" {
+				otelVolFound = true
+				break
 			}
-			if !otelVolFound {
-				mutatedPod.Spec.Volumes = append(mutatedPod.Spec.Volumes, corev1.Volume{
-					Name: "otel-config",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: configuration.OtelConfigMapName,
-							},
+		}
+		if !otelVolFound {
+			mutatedPod.Spec.Volumes = append(mutatedPod.Spec.Volumes, corev1.Volume{
+				Name: "otel-config",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: configuration.OtelConfigMapName,
 						},
 					},
-				})
-			}
+				},
+			})
 		}
 
 		otelSidecar := &corev1.Container{

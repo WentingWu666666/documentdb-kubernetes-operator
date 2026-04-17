@@ -60,7 +60,8 @@ func ConfigMapName(clusterName string) string {
 //
 // This function is only called when monitoring is enabled. When monitoring is
 // disabled, the operator deletes the ConfigMap and removes sidecar parameters,
-// causing CNPG to remove the sidecar via a rolling restart.
+// then triggers a rolling restart (via restart annotation) so that CNPG
+// recreates pods without the sidecar.
 func GenerateConfigMapData(clusterName, namespace string, spec *dbpreview.MonitoringSpec) (map[string]string, error) {
 	dynamicYAML, err := generateDynamicConfig(clusterName, namespace, spec)
 	if err != nil {
@@ -151,8 +152,9 @@ func generateDynamicConfig(clusterName, namespace string, spec *dbpreview.Monito
 }
 
 // HashConfigMapData computes a truncated SHA-256 hash of ConfigMap data.
-// The hash is passed as a CNPG plugin parameter so that CNPG detects
-// parameter changes and triggers a rolling restart when config changes
+// The hash is stored as a CNPG plugin parameter so that the operator detects
+// config changes (via parameter diff in SyncCnpgCluster) and triggers a
+// rolling restart via a restart annotation
 // (e.g., operator upgrade adds new metrics, user changes exporter settings).
 func HashConfigMapData(data map[string]string) string {
 	h := sha256.New()

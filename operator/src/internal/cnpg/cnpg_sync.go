@@ -95,8 +95,9 @@ func SyncCnpgCluster(
 
 			// OTel sidecar parameters: add/update when monitoring is enabled,
 			// remove when monitoring is disabled.
-			// TODO(otel): Currently, changing OTel params triggers a CNPG rolling restart
-			// because the sidecar-injector plugin reads params at pod creation time.
+			// TODO(otel): Currently, changing OTel params triggers a rolling restart
+			// (the operator adds a restart annotation) because the sidecar-injector
+			// plugin reads params at pod creation time.
 			// Investigate hot-reload support so that enable/disable and config changes
 			// (e.g. Prometheus port, collector image) can take effect without restarting
 			// database pods — for example, by updating the ConfigMap in-place and
