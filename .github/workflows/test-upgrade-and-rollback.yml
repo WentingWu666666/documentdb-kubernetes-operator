@@ -43,7 +43,7 @@ env:
   DB_USERNAME: k8s_secret_user
   DB_PASSWORD: K8sSecret100
   DB_PORT: 10260
-  RELEASED_DATABASE_VERSION: 0.109.0
+  RELEASED_DATABASE_VERSION: 0.110.0
   # Always resolve released baseline images from the canonical org, not the fork owner.
   RELEASED_DATABASE_OWNER: documentdb
 
@@ -103,7 +103,7 @@ jobs:
 
         # New images come from this workflow run (self-built) or from the provided candidate tag.
         # Database images use a separate version track from operator images.
-        # CI-built images are now tagged with the extension version (e.g., 0.109.0-test-RUNID-arch)
+        # CI-built images are now tagged with the extension version (e.g., 0.110.0-test-RUNID-arch)
         # by test-build-and-package.yml, so no re-tagging is needed.
         if [[ "${{ github.event_name }}" == "pull_request" || -z "${{ inputs.image_tag }}" ]]; then
           NEW_DOCDB="ghcr.io/${{ github.repository_owner }}/documentdb-kubernetes-operator/documentdb:${{ env.EXT_IMAGE_TAG }}-${{ matrix.architecture }}"
