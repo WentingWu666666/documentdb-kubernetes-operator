@@ -141,6 +141,13 @@ jobs:
             echo "::warning::Could not determine running operator version"
           elif [ "$RUNNING" != "$EXPECTED" ]; then
             echo "⬆️ Upgrading operator: $RUNNING → $EXPECTED"
+
+            # Helm does NOT upgrade CRDs automatically. Apply them first so
+            # the new operator code does not reference fields the cluster's
+            # CRD schema lacks (e.g., schemaVersion).
+            echo "📦 Applying CRDs from chart..."
+            kubectl apply -f operator/documentdb-helm-chart/crds/
+
             helm upgrade documentdb-operator operator/documentdb-helm-chart \
               -n ${{ env.OPERATOR_NAMESPACE }} \
               --set image.tag="$EXPECTED" \
@@ -160,50 +167,34 @@ jobs:
             echo "✅ Operator is up to date ($RUNNING)"
           fi
 
-      - name: Check and upgrade DocumentDB version
+      - name: Publish desired DocumentDB version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Get latest published DocumentDB tag from GHCR (strict semver only)
+          # Determine the latest published DocumentDB tag and publish it to a
+          # ConfigMap. The long-haul test reads this and performs the actual
+          # upgrade as a load-aware operation (so continuous verifiers can
+          # detect any data-integrity issues caused by the upgrade).
           EXPECTED=$(gh api '/orgs/documentdb/packages/container/documentdb-kubernetes-operator%2Fdocumentdb/versions' \
             --jq '[.[].metadata.container.tags[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(. | split(".") | map(tonumber)) | last' 2>/dev/null || echo "")
 
           if [ -z "$EXPECTED" ]; then
-            # Fallback to values.yaml if GHCR query fails
             EXPECTED=$(grep 'documentDbVersion:' operator/documentdb-helm-chart/values.yaml | awk '{print $2}' | tr -d '"')
             echo "ℹ️ GHCR query failed, using values.yaml: $EXPECTED"
           fi
 
-          # Running version from status (actual image tag on cluster)
-          RUNNING=$(kubectl get documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
-            -o jsonpath='{.status.documentDBImage}' 2>/dev/null | sed 's/.*://')
-
-          echo "DocumentDB: expected=$EXPECTED running=$RUNNING"
-
-          if [ -z "$RUNNING" ]; then
-            echo "⬆️ DocumentDB version not available in status — setting to $EXPECTED with schemaVersion=auto"
-            kubectl patch documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
-              --type merge -p "{\"spec\":{\"documentDbVersion\":\"$EXPECTED\",\"schemaVersion\":\"auto\"}}"
-          elif [ "$RUNNING" != "$EXPECTED" ]; then
-            echo "⬆️ Upgrading DocumentDB: $RUNNING → $EXPECTED"
-            kubectl patch documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
-              --type merge -p "{\"spec\":{\"documentDbVersion\":\"$EXPECTED\",\"schemaVersion\":\"auto\"}}"
-          else
-            echo "✅ DocumentDB is up to date ($RUNNING)"
+          if [ -z "$EXPECTED" ]; then
+            echo "::warning::Could not determine desired DocumentDB version; skipping publish"
             exit 0
           fi
 
-          # Wait for reconciliation — poll status.documentDBImage until it matches
-          echo "⏳ Waiting for DocumentDB upgrade to complete..."
-          for i in $(seq 1 30); do
-            sleep 20
-            CURRENT=$(kubectl get documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
-              -o jsonpath='{.status.documentDBImage}' 2>/dev/null | sed 's/.*://')
-            if [ "$CURRENT" = "$EXPECTED" ]; then
-              echo "✅ DocumentDB upgraded and verified: $CURRENT"
-              exit 0
-            fi
-            echo "  Attempt $i/30: status=$CURRENT (waiting for $EXPECTED)"
-          done
-          echo "::error::DocumentDB upgrade verification timed out after 10m (last=$CURRENT expected=$EXPECTED)"
-          exit 1
+          echo "📣 Publishing desired DocumentDB version: $EXPECTED"
+          kubectl create configmap longhaul-versions \
+            -n ${{ env.NAMESPACE }} \
+            --from-literal=desired-documentdb-version="$EXPECTED" \
+            --from-literal=last-updated="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          RUNNING=$(kubectl get documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
+            -o jsonpath='{.status.documentDBImage}' 2>/dev/null | sed 's/.*://')
+          echo "DocumentDB: desired=$EXPECTED running=$RUNNING (test will upgrade if drifted)"
