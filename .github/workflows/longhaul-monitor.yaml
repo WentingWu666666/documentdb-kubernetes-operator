@@ -145,7 +145,17 @@ jobs:
               -n ${{ env.OPERATOR_NAMESPACE }} \
               --set image.tag="$EXPECTED" \
               --wait --timeout 5m
-            echo "✅ Operator upgraded to $EXPECTED"
+
+            # Verify rollout completed
+            kubectl rollout status deployment -n ${{ env.OPERATOR_NAMESPACE }} -l app.kubernetes.io/name=documentdb-operator --timeout=3m
+            ACTUAL=$(kubectl get deployment -n ${{ env.OPERATOR_NAMESPACE }} -l app.kubernetes.io/name=documentdb-operator \
+              -o jsonpath='{.items[0].spec.template.spec.containers[0].image}' | sed 's/.*://')
+            if [ "$ACTUAL" = "$EXPECTED" ]; then
+              echo "✅ Operator upgraded and verified: $ACTUAL"
+            else
+              echo "::error::Operator upgrade verification failed: expected=$EXPECTED actual=$ACTUAL"
+              exit 1
+            fi
           else
             echo "✅ Operator is up to date ($RUNNING)"
           fi
@@ -164,22 +174,36 @@ jobs:
             echo "ℹ️ GHCR query failed, using values.yaml: $EXPECTED"
           fi
 
-          # Running version from cluster
+          # Running version from status (actual image tag on cluster)
           RUNNING=$(kubectl get documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
-            -o jsonpath='{.spec.documentDbVersion}' 2>/dev/null)
+            -o jsonpath='{.status.documentDBImage}' 2>/dev/null | sed 's/.*://')
 
           echo "DocumentDB: expected=$EXPECTED running=$RUNNING"
 
           if [ -z "$RUNNING" ]; then
-            echo "⬆️ DocumentDB version not set in CR — setting to $EXPECTED with schemaVersion=auto"
+            echo "⬆️ DocumentDB version not available in status — setting to $EXPECTED with schemaVersion=auto"
             kubectl patch documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
               --type merge -p "{\"spec\":{\"documentDbVersion\":\"$EXPECTED\",\"schemaVersion\":\"auto\"}}"
-            echo "✅ DocumentDB version set to $EXPECTED"
           elif [ "$RUNNING" != "$EXPECTED" ]; then
             echo "⬆️ Upgrading DocumentDB: $RUNNING → $EXPECTED"
             kubectl patch documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
               --type merge -p "{\"spec\":{\"documentDbVersion\":\"$EXPECTED\",\"schemaVersion\":\"auto\"}}"
-            echo "✅ DocumentDB version patched to $EXPECTED (rolling update in progress)"
           else
             echo "✅ DocumentDB is up to date ($RUNNING)"
+            exit 0
           fi
+
+          # Wait for reconciliation — poll status.documentDBImage until it matches
+          echo "⏳ Waiting for DocumentDB upgrade to complete..."
+          for i in $(seq 1 30); do
+            sleep 20
+            CURRENT=$(kubectl get documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
+              -o jsonpath='{.status.documentDBImage}' 2>/dev/null | sed 's/.*://')
+            if [ "$CURRENT" = "$EXPECTED" ]; then
+              echo "✅ DocumentDB upgraded and verified: $CURRENT"
+              exit 0
+            fi
+            echo "  Attempt $i/30: status=$CURRENT (waiting for $EXPECTED)"
+          done
+          echo "::error::DocumentDB upgrade verification timed out after 10m (last=$CURRENT expected=$EXPECTED)"
+          exit 1
