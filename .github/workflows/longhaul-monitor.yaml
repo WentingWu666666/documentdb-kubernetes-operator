@@ -171,11 +171,14 @@ jobs:
           echo "DocumentDB: expected=$EXPECTED running=$RUNNING"
 
           if [ -z "$RUNNING" ]; then
-            echo "::warning::Could not determine running DocumentDB version"
+            echo "⬆️ DocumentDB version not set in CR — setting to $EXPECTED with schemaVersion=auto"
+            kubectl patch documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
+              --type merge -p "{\"spec\":{\"documentDbVersion\":\"$EXPECTED\",\"schemaVersion\":\"auto\"}}"
+            echo "✅ DocumentDB version set to $EXPECTED"
           elif [ "$RUNNING" != "$EXPECTED" ]; then
             echo "⬆️ Upgrading DocumentDB: $RUNNING → $EXPECTED"
             kubectl patch documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
-              --type merge -p "{\"spec\":{\"documentDbVersion\":\"$EXPECTED\"}}"
+              --type merge -p "{\"spec\":{\"documentDbVersion\":\"$EXPECTED\",\"schemaVersion\":\"auto\"}}"
             echo "✅ DocumentDB version patched to $EXPECTED (rolling update in progress)"
           else
             echo "✅ DocumentDB is up to date ($RUNNING)"
