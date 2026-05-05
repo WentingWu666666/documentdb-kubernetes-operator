@@ -71,12 +71,6 @@ jobs:
             exit 1
           fi
 
-          # Fail if ConfigMap reports failure
-          if [ "${{ steps.report-check.outputs.result }}" = "FAIL" ]; then
-            echo "::error::Long haul test reported FAIL in ConfigMap"
-            exit 1
-          fi
-
           # Fail if report is stale (>2h old) — indicates the test may be hung
           LAST="${{ steps.report-check.outputs.last_updated }}"
           if [ -n "$LAST" ] && [ "$LAST" != "UNKNOWN" ]; then
@@ -89,9 +83,20 @@ jobs:
             fi
           fi
 
-          # Warn if no active pods and job not found
+          # Fail if ConfigMap reports failure
+          if [ "${{ steps.report-check.outputs.result }}" = "FAIL" ]; then
+            echo "::error::Long haul test reported FAIL in ConfigMap"
+            exit 1
+          fi
+
+          # Fail if Job not found — test should always be running
+          # If you need to fix/redeploy the long-haul test, disable this workflow first:
+          #   gh workflow disable "Long Haul Monitor"
+          # Re-enable after redeployment:
+          #   gh workflow enable "Long Haul Monitor"
           if [ "${{ steps.job-check.outputs.failed_status }}" = "NotFound" ]; then
-            echo "::notice::No long-haul Job found — test may not be running"
+            echo "::error::No long-haul Job found — test is not running. Disable this workflow while fixing."
+            exit 1
           fi
 
           echo "✅ Long haul test is healthy"
