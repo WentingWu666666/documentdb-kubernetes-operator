@@ -121,9 +121,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Get latest published operator image tag from GHCR
-          EXPECTED=$(gh api /orgs/documentdb/packages/container/documentdb-kubernetes-operator%2Foperator/versions \
-            --jq '[.[].metadata.container.tags[] | select(test("^[0-9]"))] | sort_by(. | split(".") | map(tonumber)) | last' 2>/dev/null || echo "")
+          # Get latest published operator tag from GHCR (strict semver only)
+          EXPECTED=$(gh api /orgs/documentdb/packages/container/documentdb-operator/versions \
+            --jq '[.[].metadata.container.tags[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(. | split(".") | map(tonumber)) | last' 2>/dev/null || echo "")
 
           if [ -z "$EXPECTED" ]; then
             # Fallback to Chart.yaml if GHCR query fails
@@ -154,9 +154,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Get latest published DocumentDB image tag from GHCR
-          EXPECTED=$(gh api /orgs/documentdb/packages/container/documentdb-kubernetes-operator%2Fdocumentdb/versions \
-            --jq '[.[].metadata.container.tags[] | select(test("^[0-9]"))] | sort_by(. | split(".") | map(tonumber)) | last' 2>/dev/null || echo "")
+          # Get latest published DocumentDB tag from GHCR (strict semver only)
+          EXPECTED=$(gh api '/orgs/documentdb/packages/container/documentdb-kubernetes-operator%2Fdocumentdb/versions' \
+            --jq '[.[].metadata.container.tags[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(. | split(".") | map(tonumber)) | last' 2>/dev/null || echo "")
 
           if [ -z "$EXPECTED" ]; then
             # Fallback to values.yaml if GHCR query fails
