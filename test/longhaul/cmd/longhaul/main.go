@@ -21,6 +21,9 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 func main() {
@@ -92,8 +95,12 @@ func run(cfg config.Config) int {
 
 	j.Info("main", "long haul test starting")
 
-	// Initialize cluster client (placeholder — real implementation in Phase 2).
-	clusterClient := &placeholderClusterClient{replicas: cfg.MinReplicas}
+	// Initialize real k8s cluster client.
+	clusterClient, k8sClientset, err := initK8sClient(cfg)
+	if err != nil {
+		log.Fatalf("failed to initialize k8s client: %v", err)
+	}
+	j.Info("main", "k8s client initialized")
 
 	// Start health monitor.
 	healthMon := monitor.NewHealthMonitor(clusterClient, j, cfg.SteadyStateWait)
@@ -120,6 +127,16 @@ func run(cfg config.Config) int {
 	scheduler := operations.NewScheduler(ops, healthMon, j, cfg.OpCooldown)
 	go scheduler.Run(ctx)
 
+	// Start metrics sampling goroutine (feeds leak detector).
+	go runMetricsSampling(ctx, clusterClient, leakDetector, j)
+
+	// Start periodic checkpoint reporter.
+	summaryFunc := func() report.Summary {
+		return buildSummary(metrics, leakDetector, scheduler, j)
+	}
+	reporter := report.NewCheckpointReporter(k8sClientset, cfg.Namespace, cfg.ReportInterval, summaryFunc)
+	go reporter.Run(ctx)
+
 	j.Info("main", "all components started, entering main loop")
 
 	// Main loop: wait for context expiry.
@@ -129,7 +146,25 @@ func run(cfg config.Config) int {
 	// Allow goroutines to flush.
 	time.Sleep(500 * time.Millisecond)
 
-	// Generate report.
+	// Generate final report.
+	summary := buildSummary(metrics, leakDetector, scheduler, j)
+	markdown := report.GenerateMarkdown(summary)
+	fmt.Println("\n" + markdown)
+
+	// Emit final GitHub Actions annotation.
+	report.EmitAnnotation(summary)
+
+	if summary.Result == report.ResultFail {
+		log.Printf("TEST FAILED: %s", summary.FailReason)
+		return 1
+	}
+
+	log.Println("TEST PASSED")
+	return 0
+}
+
+// buildSummary constructs a report.Summary from current state.
+func buildSummary(metrics *workload.Metrics, leakDetector *monitor.LeakDetector, scheduler *operations.Scheduler, j *journal.Journal) report.Summary {
 	snap := metrics.Snapshot()
 	leakAnalysis := leakDetector.Analyze()
 
@@ -149,7 +184,7 @@ func run(cfg config.Config) int {
 		failReason += "outage policy violated"
 	}
 
-	summary := report.Summary{
+	return report.Summary{
 		Result:       result,
 		Duration:     snap.Elapsed,
 		Metrics:      snap,
@@ -159,42 +194,85 @@ func run(cfg config.Config) int {
 		Events:       j.Events(),
 		FailReason:   failReason,
 	}
+}
 
-	markdown := report.GenerateMarkdown(summary)
-	fmt.Println("\n" + markdown)
-
-	if result == report.ResultFail {
-		log.Printf("TEST FAILED: %s", failReason)
-		return 1
+// initK8sClient creates the real K8s cluster client and returns the clientset for ConfigMap access.
+func initK8sClient(cfg config.Config) (*monitor.K8sClusterClient, kubernetes.Interface, error) {
+	k8sCfg := monitor.K8sClientConfig{
+		Namespace:   cfg.Namespace,
+		ClusterName: cfg.ClusterName,
+		Kubeconfig:  os.Getenv("KUBECONFIG"),
 	}
 
-	log.Println("TEST PASSED")
-	return 0
+	client, err := monitor.NewK8sClusterClient(k8sCfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Build a clientset for the reporter (ConfigMap operations).
+	restConfig, err := buildRESTConfig()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build REST config for clientset: %w", err)
+	}
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create clientset: %w", err)
+	}
+
+	return client, clientset, nil
 }
 
-// placeholderClusterClient is a minimal implementation of monitor.ClusterClient
-// that returns safe defaults. It will be replaced with a real k8s client in Phase 2.
-type placeholderClusterClient struct {
-	replicas int
+func buildRESTConfig() (*rest.Config, error) {
+	cfg, err := rest.InClusterConfig()
+	if err == nil {
+		return cfg, nil
+	}
+	kubeconfig := os.Getenv("KUBECONFIG")
+	if kubeconfig == "" {
+		kubeconfig = clientcmd.RecommendedHomeFile
+	}
+	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
-func (p *placeholderClusterClient) GetClusterHealth(_ context.Context) (monitor.ClusterHealth, error) {
-	return monitor.ClusterHealth{
-		Timestamp:     time.Now(),
-		AllPodsReady:  true,
-		ReadyPods:     p.replicas,
-		TotalPods:     p.replicas,
-		CRReady:       true,
-		RestartCount:  0,
-		WritesHealthy: true,
-	}, nil
-}
+// runMetricsSampling periodically collects pod resource metrics and feeds the leak detector.
+func runMetricsSampling(ctx context.Context, client *monitor.K8sClusterClient, ld *monitor.LeakDetector, j *journal.Journal) {
+	if !client.MetricsAvailable() {
+		j.Info("metrics", "metrics-server not available, leak detection sampling disabled")
+		return
+	}
+	j.Info("metrics", "metrics sampling started (60s interval)")
 
-func (p *placeholderClusterClient) GetCurrentReplicas(_ context.Context) (int, error) {
-	return p.replicas, nil
-}
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
 
-func (p *placeholderClusterClient) ScaleCluster(_ context.Context, replicas int) error {
-	p.replicas = replicas
-	return nil
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			podMetrics, err := client.GetPodMetrics(ctx)
+			if err != nil {
+				j.Warn("metrics", fmt.Sprintf("metrics query error: %v", err))
+				continue
+			}
+			if podMetrics == nil {
+				// Metrics became unavailable.
+				j.Warn("metrics", "metrics-server became unavailable, stopping sampling")
+				return
+			}
+
+			// Sum memory and CPU across all DocumentDB pods.
+			var totalMem, totalCPU float64
+			for _, pm := range podMetrics {
+				totalMem += pm.MemoryMB
+				totalCPU += pm.CPUCores
+			}
+
+			ld.AddSample(monitor.ResourceSample{
+				Timestamp: time.Now(),
+				MemoryMB:  totalMem,
+				CPUCores:  totalCPU,
+			})
+		}
+	}
 }

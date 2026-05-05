@@ -27,6 +27,9 @@ const (
 	EnvSteadyStateWait = "LONGHAUL_STEADY_STATE_WAIT"
 	EnvMinReplicas     = "LONGHAUL_MIN_REPLICAS"
 	EnvMaxReplicas     = "LONGHAUL_MAX_REPLICAS"
+
+	// Phase 2: observability configuration.
+	EnvReportInterval = "LONGHAUL_REPORT_INTERVAL"
 )
 
 // Config holds all configuration for a long haul test run.
@@ -63,6 +66,9 @@ type Config struct {
 
 	// MaxReplicas is the maximum replica count for scale operations.
 	MaxReplicas int
+
+	// ReportInterval is how often checkpoint reports are generated.
+	ReportInterval time.Duration
 }
 
 // DefaultConfig returns a Config with safe defaults for local development.
@@ -79,6 +85,7 @@ func DefaultConfig() Config {
 		SteadyStateWait: 60 * time.Second,
 		MinReplicas:     2,
 		MaxReplicas:     5,
+		ReportInterval:  1 * time.Hour,
 	}
 }
 
@@ -161,6 +168,14 @@ func LoadFromEnv() (Config, error) {
 			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvMaxReplicas, v, err)
 		}
 		cfg.MaxReplicas = n
+	}
+
+	if v := os.Getenv(EnvReportInterval); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvReportInterval, v, err)
+		}
+		cfg.ReportInterval = d
 	}
 
 	return cfg, nil
