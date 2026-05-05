@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -182,6 +183,48 @@ func (k *K8sClusterClient) ScaleCluster(ctx context.Context, replicas int) error
 		return fmt.Errorf("failed to patch DocumentDB CR: %w", err)
 	}
 
+	return nil
+}
+
+// GetCurrentDocumentDBImageTag reads status.documentDBImage from the CR
+// and returns the tag portion (after the last colon).
+func (k *K8sClusterClient) GetCurrentDocumentDBImageTag(ctx context.Context) (string, error) {
+	cr, err := k.dynamicClient.Resource(k.crGVR).Namespace(k.namespace).Get(ctx, k.clusterName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get DocumentDB CR: %w", err)
+	}
+
+	image, found, err := unstructured.NestedString(cr.Object, "status", "documentDBImage")
+	if err != nil || !found || image == "" {
+		return "", nil
+	}
+
+	idx := strings.LastIndex(image, ":")
+	if idx < 0 || idx == len(image)-1 {
+		return "", nil
+	}
+	return image[idx+1:], nil
+}
+
+// UpgradeDocumentDB patches the DocumentDB CR to set documentDbVersion
+// and schemaVersion="auto" so the operator performs a rolling upgrade.
+func (k *K8sClusterClient) UpgradeDocumentDB(ctx context.Context, version string) error {
+	patch := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"documentDbVersion": version,
+			"schemaVersion":     "auto",
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch: %w", err)
+	}
+
+	_, err = k.dynamicClient.Resource(k.crGVR).Namespace(k.namespace).Patch(
+		ctx, k.clusterName, types.MergePatchType, patchBytes, metav1.PatchOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to patch DocumentDB CR: %w", err)
+	}
 	return nil
 }
 

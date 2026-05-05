@@ -41,6 +41,14 @@ type ClusterClient interface {
 
 	// ScaleCluster sets the desired replica count.
 	ScaleCluster(ctx context.Context, replicas int) error
+
+	// GetCurrentDocumentDBImageTag returns the tag portion of status.documentDBImage
+	// (e.g., "0.109.0" from "ghcr.io/.../documentdb:0.109.0").
+	// Returns empty string if status not yet populated.
+	GetCurrentDocumentDBImageTag(ctx context.Context) (string, error)
+
+	// UpgradeDocumentDB patches spec.documentDbVersion and spec.schemaVersion="auto".
+	UpgradeDocumentDB(ctx context.Context, version string) error
 }
 
 // HealthMonitor continuously monitors cluster health and tracks steady-state.
