@@ -15,13 +15,12 @@ test/longhaul/
 ├── go.mod                # Separate Go module
 ├── README.md             # This file
 ├── Dockerfile            # Multi-stage build for in-cluster deployment
-├── suite_test.go         # Ginkgo suite entry point
-├── longhaul_test.go      # BeforeSuite + long-running test spec (Ginkgo mode)
 ├── cmd/longhaul/
-│   └── main.go           # Standalone binary entry point (Job mode)
+│   └── main.go           # Standalone binary entry point
 ├── deploy/
+│   ├── setup.yaml        # Namespace + credentials + DocumentDB CR (bootstrap)
 │   ├── job.yaml          # Kubernetes Job + ConfigMap manifest
-│   └── rbac.yaml         # ServiceAccount (Phase 2: + RBAC roles)
+│   └── rbac.yaml         # ServiceAccount + RBAC roles
 ├── config/
 │   ├── config.go         # Config struct, env var loading, validation
 │   └── config_test.go    # Config unit tests
@@ -37,11 +36,11 @@ test/longhaul/
 ├── journal/
 │   └── journal.go        # Structured event log + disruption windows
 └── report/
-    └── report.go         # Markdown report generation
+    └── checkpoint.go     # Periodic reporter (ConfigMap + stdout)
 ```
 
 - **`test/longhaul/`** — The long-running canary. Designed to run for hours/days.
-- **`test/longhaul/cmd/longhaul/`** — Standalone binary for Kubernetes Job deployment.
+- **`test/longhaul/cmd/longhaul/`** — Standalone binary, deployed as a Kubernetes Job.
 - **`test/longhaul/deploy/`** — Kubernetes manifests for in-cluster deployment.
 - **`test/longhaul/config/`** — Config parsing and validation. Fast unit tests, safe for CI.
 
@@ -62,22 +61,19 @@ cd test/longhaul
 go test ./config/ -v
 ```
 
-### Run Locally (Ginkgo Mode)
+### Run Locally
 
 For development and validation against a port-forwarded cluster:
 
 ```bash
 cd test/longhaul
 
-LONGHAUL_ENABLED=true \
 LONGHAUL_MONGO_URI="mongodb://user:pass@localhost:10260/?directConnection=true&authMechanism=SCRAM-SHA-256&tls=true&tlsInsecure=true" \
 LONGHAUL_CLUSTER_NAME=documentdb-cluster \
 LONGHAUL_NAMESPACE=documentdb-test-ns \
 LONGHAUL_MAX_DURATION=5m \
-go test -v -timeout 0 -run TestLongHaul -args --ginkgo.v
+go run ./cmd/longhaul/
 ```
-
-> **Note:** Use `-timeout 0` to disable Go's default 10-minute test timeout for long runs.
 
 ### Deploy as Kubernetes Job (Recommended for Real Runs)
 
@@ -116,12 +112,10 @@ kubectl apply -f deploy/job.yaml
 
 ## Configuration
 
-All configuration is via environment variables. The Ginkgo mode is gated behind
-`LONGHAUL_ENABLED`; the standalone binary (`cmd/longhaul`) runs unconditionally.
+All configuration is via environment variables.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `LONGHAUL_ENABLED` | Ginkgo only | — | Must be `true`, `1`, or `yes` to run in Ginkgo mode. |
 | `LONGHAUL_MONGO_URI` | Yes | — | MongoDB connection string to the DocumentDB gateway. |
 | `LONGHAUL_CLUSTER_NAME` | Yes | — | Name of the target DocumentDB cluster CR. |
 | `LONGHAUL_NAMESPACE` | No | `default` | Kubernetes namespace of the target cluster. |
@@ -132,19 +126,12 @@ All configuration is via environment variables. The Ginkgo mode is gated behind
 | `LONGHAUL_RECOVERY_TIMEOUT` | No | `5m` | Max wait for cluster recovery after an operation. |
 | `LONGHAUL_MIN_REPLICAS` | No | `1` | Minimum replicas for scale-down operations. |
 | `LONGHAUL_MAX_REPLICAS` | No | `3` | Maximum replicas for scale-up operations. |
+| `LONGHAUL_REPORT_INTERVAL` | No | `1h` | How often to write checkpoint reports to ConfigMap. |
 
 ## CI Safety
 
-The long haul tests are gated behind `LONGHAUL_ENABLED`. No CI workflow currently sets this
-variable — do not add it to any PR-gated workflow.
-
-1. `LONGHAUL_ENABLED` is not set in any CI workflow
-2. The `BeforeSuite` calls `Skip()` when disabled
-3. CI output shows `Suite skipped in BeforeSuite -- 0 Passed | 0 Failed | 1 Skipped`
-
-> **Note:** For persistent canary deployment, the Job manifest explicitly sets
-> `LONGHAUL_MAX_DURATION=0s` to enable run-until-failure mode. The default 30m timeout
-> is only a safety net for local development.
+The long haul test binary is deployed as a Kubernetes Job on a dedicated AKS cluster.
+It does **not** run in any PR-gated CI workflow.
 
 The config unit tests (`test/longhaul/config/`) run unconditionally and are included in normal
 CI test runs — they are fast (~0.002s) and require no cluster.
