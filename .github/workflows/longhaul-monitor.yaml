@@ -24,17 +24,11 @@ jobs:
   check-longhaul:
     runs-on: ubuntu-latest
     steps:
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.LONGHAUL_AZURE_CREDENTIALS }}
-
-      - name: Get AKS credentials
+      - name: Set up kubeconfig
         run: |
-          az aks get-credentials \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --cluster-name ${{ env.CLUSTER_NAME }} \
-            --overwrite-existing
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.LONGHAUL_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
 
       - name: Check Job exists
         id: job-check
