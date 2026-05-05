@@ -64,6 +64,7 @@ spec:
   environment: aks
   nodeCount: 1
   instancesPerNode: 1
+  schemaVersion: "auto"
   documentDbCredentialSecret: documentdb-credentials
   resource:
     storage:
