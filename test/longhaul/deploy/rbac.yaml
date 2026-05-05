@@ -1,0 +1,19 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+# ServiceAccount for the long-haul test Job.
+# Phase 1: minimal permissions (no k8s operations).
+# Phase 2: will add RBAC to scale DocumentDB clusters and read pod status.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: longhaul-test
+  namespace: documentdb-test-ns
+  labels:
+    app.kubernetes.io/name: longhaul-test
+    app.kubernetes.io/component: testing
+---
+# Phase 2 will add ClusterRole/RoleBinding here for:
+# - get/list pods in the target namespace
+# - patch DocumentDB CR (for scale operations)
+# - get/list events
