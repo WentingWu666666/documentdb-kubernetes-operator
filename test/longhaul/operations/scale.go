@@ -55,6 +55,13 @@ func (s *ScaleUp) Execute(ctx context.Context) error {
 		return fmt.Errorf("scale to %d: %w", target, err)
 	}
 
+	// Confirm the patch took effect: spec.nodeCount must reach `target`.
+	replicaCtx, cancelR := context.WithTimeout(ctx, s.recovery)
+	defer cancelR()
+	if err := waitForReplicas(replicaCtx, s.client, target); err != nil {
+		return err
+	}
+
 	// Wait for recovery (new pod becomes ready).
 	recoveryCtx, cancel := context.WithTimeout(ctx, s.recovery)
 	defer cancel()
@@ -112,6 +119,13 @@ func (s *ScaleDown) Execute(ctx context.Context) error {
 		return fmt.Errorf("scale to %d: %w", target, err)
 	}
 
+	// Confirm the patch took effect: spec.nodeCount must reach `target`.
+	replicaCtx, cancelR := context.WithTimeout(ctx, s.recovery)
+	defer cancelR()
+	if err := waitForReplicas(replicaCtx, s.client, target); err != nil {
+		return err
+	}
+
 	// Wait for recovery (cluster stabilizes at new size).
 	recoveryCtx, cancel := context.WithTimeout(ctx, s.recovery)
 	defer cancel()
@@ -123,5 +137,33 @@ func (s *ScaleDown) OutagePolicy() journal.OutagePolicy {
 		AllowedDowntime:      60 * time.Second,
 		AllowedWriteFailures: 50,
 		MustRecoverWithin:    s.recovery,
+	}
+}
+
+// waitForReplicas polls spec.nodeCount on the DocumentDB CR until it equals
+// `target` or the context expires. This guards against the operator silently
+// dropping or rewriting the scale patch — without this check, a no-op scale
+// would be reported as success because the pre-existing topology trivially
+// satisfies WaitForSteadyState.
+func waitForReplicas(ctx context.Context, client monitor.ClusterClient, target int) error {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	// Probe once immediately so a fast-applied patch doesn't pay the first tick.
+	if current, err := client.GetCurrentReplicas(ctx); err == nil && current == target {
+		return nil
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for spec.nodeCount to reach %d: %w", target, ctx.Err())
+		case <-ticker.C:
+			current, err := client.GetCurrentReplicas(ctx)
+			if err != nil {
+				continue
+			}
+			if current == target {
+				return nil
+			}
+		}
 	}
 }
