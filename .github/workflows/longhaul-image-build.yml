@@ -1,0 +1,108 @@
+name: LONGHAUL - Build Test Driver Image
+
+# Builds the long-haul test driver image (test/longhaul/Dockerfile) and pushes
+# it to the private ACR documentdblonghaul.azurecr.io.
+#
+# Auth: federated OIDC against a User-Assigned Managed Identity (UAMI) in Azure.
+# No Service Principal password / kubeconfig is stored as a secret.
+# Required repo secrets (configured per repo):
+#   LONGHAUL_AZURE_CLIENT_ID        UAMI clientId with AcrPush on the registry
+#   LONGHAUL_AZURE_TENANT_ID        Azure tenant
+#   LONGHAUL_AZURE_SUBSCRIPTION_ID  Subscription containing the registry
+#
+# Tags pushed:
+#   :sha-<short>   immutable, deployable
+#   :main          rolling pointer to the latest main build (convenience only;
+#                  do NOT use in deployments — pin to :sha-<short>)
+#
+# This workflow does NOT deploy. See longhaul-deploy.yml (workflow_dispatch).
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'test/longhaul/**'
+      - '.github/workflows/longhaul-image-build.yml'
+
+  workflow_dispatch:
+    inputs:
+      extra_tag:
+        description: 'Optional additional tag (e.g. dev-myfeature). Leave blank for none.'
+        required: false
+        default: ''
+
+permissions:
+  id-token: write    # required for azure/login OIDC
+  contents: read
+
+env:
+  ACR_NAME: documentdblonghaul
+  ACR_LOGIN_SERVER: documentdblonghaul.azurecr.io
+  IMAGE_REPO: longhaul-test
+  CONTEXT: test/longhaul
+  DOCKERFILE: test/longhaul/Dockerfile
+
+jobs:
+  build-and-push:
+    name: Build and push longhaul image
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute tags
+        id: tags
+        run: |
+          set -euo pipefail
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          IMG="${ACR_LOGIN_SERVER}/${IMAGE_REPO}"
+          TAGS="${IMG}:sha-${SHORT_SHA},${IMG}:main"
+          if [ -n "${{ github.event.inputs.extra_tag }}" ]; then
+            TAGS="${TAGS},${IMG}:${{ github.event.inputs.extra_tag }}"
+          fi
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}"           >> "$GITHUB_OUTPUT"
+          echo "Will push: ${TAGS}"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.LONGHAUL_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.LONGHAUL_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.LONGHAUL_AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name "${ACR_NAME}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          provenance: false
+          cache-from: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPO }}:buildcache
+          cache-to:   type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPO }}:buildcache,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+
+      - name: Summary
+        run: |
+          {
+            echo "## Long-haul image pushed"
+            echo ""
+            echo "| Tag | Reference |"
+            echo "|-----|-----------|"
+            echo "| Immutable | \`${ACR_LOGIN_SERVER}/${IMAGE_REPO}:sha-${{ steps.tags.outputs.short_sha }}\` |"
+            echo "| Rolling   | \`${ACR_LOGIN_SERVER}/${IMAGE_REPO}:main\` |"
+            echo ""
+            echo "Deploy via the **LONGHAUL - Deploy Test Driver** workflow with image_tag = \`sha-${{ steps.tags.outputs.short_sha }}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
