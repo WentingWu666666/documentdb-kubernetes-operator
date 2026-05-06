@@ -1,21 +1,19 @@
 name: LONGHAUL - Build Test Driver Image
 
 # Builds the long-haul test driver image (test/longhaul/Dockerfile) and pushes
-# it to the private ACR documentdblonghaul.azurecr.io.
+# it to GHCR at:
+#   ghcr.io/<owner>/documentdb-kubernetes-operator/longhaul-test:<tag>
 #
-# Auth: federated OIDC against a User-Assigned Managed Identity (UAMI) in Azure.
-# No Service Principal password / kubeconfig is stored as a secret.
-# Required repo secrets (configured per repo):
-#   LONGHAUL_AZURE_CLIENT_ID        UAMI clientId with AcrPush on the registry
-#   LONGHAUL_AZURE_TENANT_ID        Azure tenant
-#   LONGHAUL_AZURE_SUBSCRIPTION_ID  Subscription containing the registry
+# Auth: built-in GITHUB_TOKEN (no extra secrets needed). Same pattern as the
+# operator/sidecar and database image build workflows in this repo.
 #
-# Tags pushed:
+# Tags pushed every run:
 #   :sha-<short>   immutable, deployable
 #   :main          rolling pointer to the latest main build (convenience only;
-#                  do NOT use in deployments — pin to :sha-<short>)
+#                  pin to :sha-<short> for actual deployments)
 #
-# This workflow does NOT deploy. See longhaul-deploy.yml (workflow_dispatch).
+# This workflow does NOT deploy. Long-haul deploy is a separate workflow
+# (workflow_dispatch) that uses these tags.
 
 on:
   push:
@@ -33,13 +31,11 @@ on:
         default: ''
 
 permissions:
-  id-token: write    # required for azure/login OIDC
   contents: read
+  packages: write   # push to GHCR
 
 env:
-  ACR_NAME: documentdblonghaul
-  ACR_LOGIN_SERVER: documentdblonghaul.azurecr.io
-  IMAGE_REPO: longhaul-test
+  IMAGE_NAME: longhaul-test
   CONTEXT: test/longhaul
   DOCKERFILE: test/longhaul/Dockerfile
 
@@ -51,29 +47,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Compute tags
-        id: tags
+      - name: Compute image refs
+        id: refs
         run: |
           set -euo pipefail
+          OWNER_LC="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          REPO_NAME="$(basename "${{ github.repository }}")"
+          IMG="ghcr.io/${OWNER_LC}/${REPO_NAME}/${IMAGE_NAME}"
           SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
-          IMG="${ACR_LOGIN_SERVER}/${IMAGE_REPO}"
+
           TAGS="${IMG}:sha-${SHORT_SHA},${IMG}:main"
           if [ -n "${{ github.event.inputs.extra_tag }}" ]; then
             TAGS="${TAGS},${IMG}:${{ github.event.inputs.extra_tag }}"
           fi
+
+          echo "image=${IMG}"           >> "$GITHUB_OUTPUT"
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "tags=${TAGS}"           >> "$GITHUB_OUTPUT"
           echo "Will push: ${TAGS}"
 
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.LONGHAUL_AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.LONGHAUL_AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.LONGHAUL_AZURE_SUBSCRIPTION_ID }}
-
-      - name: ACR login
-        run: az acr login --name "${ACR_NAME}"
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -85,10 +79,10 @@ jobs:
           file: ${{ env.DOCKERFILE }}
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ steps.refs.outputs.tags }}
           provenance: false
-          cache-from: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPO }}:buildcache
-          cache-to:   type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPO }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ steps.refs.outputs.image }}:buildcache
+          cache-to:   type=registry,ref=${{ steps.refs.outputs.image }}:buildcache,mode=max
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -101,8 +95,8 @@ jobs:
             echo ""
             echo "| Tag | Reference |"
             echo "|-----|-----------|"
-            echo "| Immutable | \`${ACR_LOGIN_SERVER}/${IMAGE_REPO}:sha-${{ steps.tags.outputs.short_sha }}\` |"
-            echo "| Rolling   | \`${ACR_LOGIN_SERVER}/${IMAGE_REPO}:main\` |"
+            echo "| Immutable | \`${{ steps.refs.outputs.image }}:sha-${{ steps.refs.outputs.short_sha }}\` |"
+            echo "| Rolling   | \`${{ steps.refs.outputs.image }}:main\` |"
             echo ""
-            echo "Deploy via the **LONGHAUL - Deploy Test Driver** workflow with image_tag = \`sha-${{ steps.tags.outputs.short_sha }}\`."
+            echo "Deploy by setting the Job spec image to the immutable tag."
           } >> "$GITHUB_STEP_SUMMARY"
