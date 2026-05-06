@@ -24,7 +24,7 @@ on:
 
 env:
   NAMESPACE: documentdb-test-ns
-  JOB_NAME: longhaul-test
+  DEPLOYMENT_NAME: longhaul-test
   OPERATOR_NAMESPACE: documentdb-operator
 
 jobs:
@@ -33,18 +33,36 @@ jobs:
     steps:
       - name: Set up kubeconfig
         run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.LONGHAUL_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
+          set -euo pipefail
+          install -m 700 -d "$RUNNER_TEMP/.kube"
+          KCFG="$RUNNER_TEMP/.kube/config"
+          # Secret is raw kubeconfig YAML (not base64). Same format the
+          # deploy workflow uses; keep these in sync.
+          printf '%s' "${{ secrets.LONGHAUL_KUBECONFIG }}" > "$KCFG"
+          chmod 600 "$KCFG"
+          echo "KUBECONFIG=$KCFG" >> "$GITHUB_ENV"
 
-      - name: Check Job exists
-        id: job-check
+      - name: Check Deployment exists and is healthy
+        id: deploy-check
         run: |
-          STATUS=$(kubectl get job ${{ env.JOB_NAME }} -n ${{ env.NAMESPACE }} -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || echo "NotFound")
-          echo "failed_status=$STATUS" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          # Returns empty string if the Deployment doesn't exist.
+          READY=$(kubectl get deployment "${{ env.DEPLOYMENT_NAME }}" -n "${{ env.NAMESPACE }}" \
+            -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)
+          DESIRED=$(kubectl get deployment "${{ env.DEPLOYMENT_NAME }}" -n "${{ env.NAMESPACE }}" \
+            -o jsonpath='{.spec.replicas}' 2>/dev/null || true)
+          # Detect "rollout is failing" via the Progressing condition.
+          PROGRESSING_REASON=$(kubectl get deployment "${{ env.DEPLOYMENT_NAME }}" -n "${{ env.NAMESPACE }}" \
+            -o jsonpath='{.status.conditions[?(@.type=="Progressing")].reason}' 2>/dev/null || true)
 
-          ACTIVE=$(kubectl get job ${{ env.JOB_NAME }} -n ${{ env.NAMESPACE }} -o jsonpath='{.status.active}' 2>/dev/null || echo "0")
-          echo "active=$ACTIVE" >> "$GITHUB_OUTPUT"
+          if [ -z "$DESIRED" ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "ready=${READY:-0}"        >> "$GITHUB_OUTPUT"
+          echo "desired=${DESIRED:-0}"    >> "$GITHUB_OUTPUT"
+          echo "progressing_reason=${PROGRESSING_REASON}" >> "$GITHUB_OUTPUT"
 
       - name: Check ConfigMap report
         id: report-check
@@ -62,19 +80,38 @@ jobs:
 
       - name: Evaluate status
         run: |
+          set -euo pipefail
           echo "=== Long Haul Test Status ==="
-          echo "Job failed condition: ${{ steps.job-check.outputs.failed_status }}"
-          echo "Job active pods: ${{ steps.job-check.outputs.active }}"
-          echo "Report result: ${{ steps.report-check.outputs.result }}"
-          echo "Last updated: ${{ steps.report-check.outputs.last_updated }}"
+          echo "Deployment exists:    ${{ steps.deploy-check.outputs.exists }}"
+          echo "Ready / desired:      ${{ steps.deploy-check.outputs.ready }} / ${{ steps.deploy-check.outputs.desired }}"
+          echo "Progressing reason:   ${{ steps.deploy-check.outputs.progressing_reason }}"
+          echo "Report result:        ${{ steps.report-check.outputs.result }}"
+          echo "Last updated:         ${{ steps.report-check.outputs.last_updated }}"
           echo ""
           echo "=== Latest Report ==="
           echo "${{ steps.report-check.outputs.report }}"
           echo ""
 
-          # Fail if Job has failed
-          if [ "${{ steps.job-check.outputs.failed_status }}" = "True" ]; then
-            echo "::error::Long haul test Job FAILED"
+          # Fail if Deployment doesn't exist — test should always be running.
+          # If you need to fix/redeploy the long-haul test, disable this workflow first:
+          #   gh workflow disable "Long Haul Monitor"
+          # Re-enable after redeployment:
+          #   gh workflow enable "Long Haul Monitor"
+          if [ "${{ steps.deploy-check.outputs.exists }}" != "true" ]; then
+            echo "::error::No long-haul Deployment found — test is not running. Disable this workflow while fixing."
+            exit 1
+          fi
+
+          # Fail if rollout has stalled (e.g. ImagePullBackOff, CrashLoopBackOff
+          # past the progress deadline).
+          if [ "${{ steps.deploy-check.outputs.progressing_reason }}" = "ProgressDeadlineExceeded" ]; then
+            echo "::error::Long haul Deployment rollout stalled (ProgressDeadlineExceeded)"
+            exit 1
+          fi
+
+          # Fail if no replicas are ready.
+          if [ "${{ steps.deploy-check.outputs.ready }}" -lt 1 ]; then
+            echo "::error::Long haul Deployment has 0 ready replicas"
             exit 1
           fi
 
@@ -96,16 +133,6 @@ jobs:
             exit 1
           fi
 
-          # Fail if Job not found — test should always be running
-          # If you need to fix/redeploy the long-haul test, disable this workflow first:
-          #   gh workflow disable "Long Haul Monitor"
-          # Re-enable after redeployment:
-          #   gh workflow enable "Long Haul Monitor"
-          if [ "${{ steps.job-check.outputs.failed_status }}" = "NotFound" ]; then
-            echo "::error::No long-haul Job found — test is not running. Disable this workflow while fixing."
-            exit 1
-          fi
-
           echo "✅ Long haul test is healthy"
 
   upgrade-if-needed:
@@ -116,9 +143,12 @@ jobs:
 
       - name: Set up kubeconfig
         run: |
-          mkdir -p $HOME/.kube
-          echo "${{ secrets.LONGHAUL_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
+          set -euo pipefail
+          install -m 700 -d "$RUNNER_TEMP/.kube"
+          KCFG="$RUNNER_TEMP/.kube/config"
+          printf '%s' "${{ secrets.LONGHAUL_KUBECONFIG }}" > "$KCFG"
+          chmod 600 "$KCFG"
+          echo "KUBECONFIG=$KCFG" >> "$GITHUB_ENV"
 
       - name: Install Helm
         uses: azure/setup-helm@v4
