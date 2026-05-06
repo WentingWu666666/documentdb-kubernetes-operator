@@ -4,7 +4,9 @@
 # Build stage
 FROM golang:1.26-alpine AS builder
 
-RUN apk add --no-cache git ca-certificates
+# Note: the golang:*-alpine image already ships ca-certificates, and all
+# deps in go.mod resolve via proxy.golang.org (no VCS fetches), so neither
+# `git` nor an extra `ca-certificates` install is required here.
 
 WORKDIR /src
 
