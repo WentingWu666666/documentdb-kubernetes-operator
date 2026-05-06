@@ -1,0 +1,200 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+# Long Haul Test Monitor
+#
+# Polls the AKS cluster every hour to:
+# 1. Check health: Job status, report staleness, test result
+# 2. Auto-upgrade: If healthy, upgrade operator/DocumentDB to latest versions from repo
+#
+# Fails if: Job failed, ConfigMap reports FAIL, report is stale (>2h), or Job not found.
+#
+name: "Long Haul Monitor"
+
+on:
+  schedule:
+    - cron: "0 * * * *" # Every hour (matches LONGHAUL_REPORT_INTERVAL)
+  workflow_dispatch: {} # Allow manual trigger
+
+env:
+  NAMESPACE: documentdb-test-ns
+  JOB_NAME: longhaul-test
+  OPERATOR_NAMESPACE: documentdb-operator
+
+jobs:
+  check-longhaul:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.LONGHAUL_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Check Job exists
+        id: job-check
+        run: |
+          STATUS=$(kubectl get job ${{ env.JOB_NAME }} -n ${{ env.NAMESPACE }} -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || echo "NotFound")
+          echo "failed_status=$STATUS" >> "$GITHUB_OUTPUT"
+
+          ACTIVE=$(kubectl get job ${{ env.JOB_NAME }} -n ${{ env.NAMESPACE }} -o jsonpath='{.status.active}' 2>/dev/null || echo "0")
+          echo "active=$ACTIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Check ConfigMap report
+        id: report-check
+        run: |
+          RESULT=$(kubectl get configmap longhaul-report -n ${{ env.NAMESPACE }} -o jsonpath='{.data.result}' 2>/dev/null || echo "UNKNOWN")
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+
+          LAST_UPDATED=$(kubectl get configmap longhaul-report -n ${{ env.NAMESPACE }} -o jsonpath='{.data.last-updated}' 2>/dev/null || echo "")
+          echo "last_updated=$LAST_UPDATED" >> "$GITHUB_OUTPUT"
+
+          REPORT=$(kubectl get configmap longhaul-report -n ${{ env.NAMESPACE }} -o jsonpath='{.data.latest-report}' 2>/dev/null || echo "No report available")
+          echo "report<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$REPORT" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate status
+        run: |
+          echo "=== Long Haul Test Status ==="
+          echo "Job failed condition: ${{ steps.job-check.outputs.failed_status }}"
+          echo "Job active pods: ${{ steps.job-check.outputs.active }}"
+          echo "Report result: ${{ steps.report-check.outputs.result }}"
+          echo "Last updated: ${{ steps.report-check.outputs.last_updated }}"
+          echo ""
+          echo "=== Latest Report ==="
+          echo "${{ steps.report-check.outputs.report }}"
+          echo ""
+
+          # Fail if Job has failed
+          if [ "${{ steps.job-check.outputs.failed_status }}" = "True" ]; then
+            echo "::error::Long haul test Job FAILED"
+            exit 1
+          fi
+
+          # Fail if report is stale (>2h old) — indicates the test may be hung
+          LAST="${{ steps.report-check.outputs.last_updated }}"
+          if [ -n "$LAST" ] && [ "$LAST" != "UNKNOWN" ]; then
+            LAST_EPOCH=$(date -d "$LAST" +%s 2>/dev/null || echo "0")
+            NOW_EPOCH=$(date +%s)
+            AGE_SECONDS=$((NOW_EPOCH - LAST_EPOCH))
+            if [ "$AGE_SECONDS" -gt 7200 ]; then
+              echo "::error::Long haul report is stale (last updated ${AGE_SECONDS}s ago, threshold 7200s). Test may be hung."
+              exit 1
+            fi
+          fi
+
+          # Fail if ConfigMap reports failure
+          if [ "${{ steps.report-check.outputs.result }}" = "FAIL" ]; then
+            echo "::error::Long haul test reported FAIL in ConfigMap"
+            exit 1
+          fi
+
+          # Fail if Job not found — test should always be running
+          # If you need to fix/redeploy the long-haul test, disable this workflow first:
+          #   gh workflow disable "Long Haul Monitor"
+          # Re-enable after redeployment:
+          #   gh workflow enable "Long Haul Monitor"
+          if [ "${{ steps.job-check.outputs.failed_status }}" = "NotFound" ]; then
+            echo "::error::No long-haul Job found — test is not running. Disable this workflow while fixing."
+            exit 1
+          fi
+
+          echo "✅ Long haul test is healthy"
+
+  upgrade-if-needed:
+    runs-on: ubuntu-latest
+    needs: check-longhaul # Only upgrade if cluster is healthy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.LONGHAUL_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Check and upgrade operator
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get latest published operator tag from GHCR (strict semver only)
+          EXPECTED=$(gh api /orgs/documentdb/packages/container/documentdb-operator/versions \
+            --jq '[.[].metadata.container.tags[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(. | split(".") | map(tonumber)) | last' 2>/dev/null || echo "")
+
+          if [ -z "$EXPECTED" ]; then
+            # Fallback to Chart.yaml if GHCR query fails
+            EXPECTED=$(grep 'appVersion:' operator/documentdb-helm-chart/Chart.yaml | awk '{print $2}' | tr -d '"')
+            echo "ℹ️ GHCR query failed, using Chart.yaml: $EXPECTED"
+          fi
+
+          # Running version from cluster
+          RUNNING=$(kubectl get deployment -n ${{ env.OPERATOR_NAMESPACE }} -l app.kubernetes.io/name=documentdb-operator \
+            -o jsonpath='{.items[0].spec.template.spec.containers[0].image}' 2>/dev/null | sed 's/.*://')
+
+          echo "Operator: expected=$EXPECTED running=$RUNNING"
+
+          if [ -z "$RUNNING" ]; then
+            echo "::warning::Could not determine running operator version"
+          elif [ "$RUNNING" != "$EXPECTED" ]; then
+            echo "⬆️ Upgrading operator: $RUNNING → $EXPECTED"
+
+            # Helm does NOT upgrade CRDs automatically. Apply them first so
+            # the new operator code does not reference fields the cluster's
+            # CRD schema lacks (e.g., schemaVersion).
+            echo "📦 Applying CRDs from chart..."
+            kubectl apply -f operator/documentdb-helm-chart/crds/
+
+            helm upgrade documentdb-operator operator/documentdb-helm-chart \
+              -n ${{ env.OPERATOR_NAMESPACE }} \
+              --set image.tag="$EXPECTED" \
+              --wait --timeout 5m
+
+            # Verify rollout completed
+            kubectl rollout status deployment -n ${{ env.OPERATOR_NAMESPACE }} -l app.kubernetes.io/name=documentdb-operator --timeout=3m
+            ACTUAL=$(kubectl get deployment -n ${{ env.OPERATOR_NAMESPACE }} -l app.kubernetes.io/name=documentdb-operator \
+              -o jsonpath='{.items[0].spec.template.spec.containers[0].image}' | sed 's/.*://')
+            if [ "$ACTUAL" = "$EXPECTED" ]; then
+              echo "✅ Operator upgraded and verified: $ACTUAL"
+            else
+              echo "::error::Operator upgrade verification failed: expected=$EXPECTED actual=$ACTUAL"
+              exit 1
+            fi
+          else
+            echo "✅ Operator is up to date ($RUNNING)"
+          fi
+
+      - name: Publish desired DocumentDB version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Determine the latest published DocumentDB tag and publish it to a
+          # ConfigMap. The long-haul test reads this and performs the actual
+          # upgrade as a load-aware operation (so continuous verifiers can
+          # detect any data-integrity issues caused by the upgrade).
+          EXPECTED=$(gh api '/orgs/documentdb/packages/container/documentdb-kubernetes-operator%2Fdocumentdb/versions' \
+            --jq '[.[].metadata.container.tags[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by(. | split(".") | map(tonumber)) | last' 2>/dev/null || echo "")
+
+          if [ -z "$EXPECTED" ]; then
+            EXPECTED=$(grep 'documentDbVersion:' operator/documentdb-helm-chart/values.yaml | awk '{print $2}' | tr -d '"')
+            echo "ℹ️ GHCR query failed, using values.yaml: $EXPECTED"
+          fi
+
+          if [ -z "$EXPECTED" ]; then
+            echo "::warning::Could not determine desired DocumentDB version; skipping publish"
+            exit 0
+          fi
+
+          echo "📣 Publishing desired DocumentDB version: $EXPECTED"
+          kubectl create configmap longhaul-versions \
+            -n ${{ env.NAMESPACE }} \
+            --from-literal=desired-documentdb-version="$EXPECTED" \
+            --from-literal=last-updated="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          RUNNING=$(kubectl get documentdb documentdb-cluster -n ${{ env.NAMESPACE }} \
+            -o jsonpath='{.status.documentDBImage}' 2>/dev/null | sed 's/.*://')
+          echo "DocumentDB: desired=$EXPECTED running=$RUNNING (test will upgrade if drifted)"
