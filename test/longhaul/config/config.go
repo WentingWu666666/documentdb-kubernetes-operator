@@ -18,7 +18,7 @@ const (
 	EnvNamespace   = "LONGHAUL_NAMESPACE"
 	EnvClusterName = "LONGHAUL_CLUSTER_NAME"
 
-	// Phase 1b+: workload and operations configuration.
+	// Workload and operation tuning.
 	EnvMongoURI        = "LONGHAUL_MONGO_URI"
 	EnvNumWriters      = "LONGHAUL_NUM_WRITERS"
 	EnvNumVerifiers    = "LONGHAUL_NUM_VERIFIERS"
@@ -28,7 +28,7 @@ const (
 	EnvMinReplicas     = "LONGHAUL_MIN_REPLICAS"
 	EnvMaxReplicas     = "LONGHAUL_MAX_REPLICAS"
 
-	// Phase 2: observability configuration.
+	// Observability and reporting.
 	EnvReportInterval = "LONGHAUL_REPORT_INTERVAL"
 )
 

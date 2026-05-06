@@ -1,7 +1,7 @@
 # Long Haul Test Design — DocumentDB Kubernetes Operator
 
 **Issue:** [#220](https://github.com/documentdb/documentdb-kubernetes-operator/issues/220)  
-**Status:** In progress (Phase 1a complete)
+**Status:** Driver active (Phases 1a–1f and 2c, 2f, 2g, 2h complete; PR [#348](https://github.com/documentdb/documentdb-kubernetes-operator/pull/348))
 
 ---
 
@@ -95,9 +95,11 @@ These are **negative constraints** — each prevents accidentally hiding a failu
 └────────────────────┴───────────────────────────────────────────┘
 ```
 
-### Two-Cluster Topology
+### Cluster Topology — Current vs. Target
 
-The framework runs **two DocumentDB clusters** — a Primary (target of chaos) and a Baseline (control group). The Baseline makes signals attributable:
+**Today (PR #348):** the driver targets a **single DocumentDB cluster**. This is enough to exercise FM1, FM3, FM4, FM7 and to surface most operator-side regressions, and it is what the live `longhaul-aks` canary runs.
+
+**Target state:** add a second **Baseline** DocumentDB cluster (control group) so signals become attributable. The Baseline is left untouched by the operation scheduler:
 
 | Observation | Diagnosis |
 |---|---|
@@ -105,7 +107,7 @@ The framework runs **two DocumentDB clusters** — a Primary (target of chaos) a
 | Both A and B degrade | Operator-level bug — leak in the shared operator |
 | B degrades, A stable | Infrastructure noise — dismiss |
 
-**Orchestration rules:**
+**Future orchestration rules:**
 - Operations target **Cluster A only** (Baseline stays stable)
 - Data-plane traffic runs on **both** clusters (same load — fair comparison)
 - Operator upgrades apply to both (single operator instance)
@@ -153,24 +155,26 @@ Replace a cluster when: hardware EOL, Kubernetes version too old, or accumulated
 
 ## Operations Catalog
 
-| Operation | Category | Target | Precondition |
-|---|---|---|---|
-| Scale Up | Topology | A | replicas < max |
-| Scale Down | Topology | A | replicas > min(3) |
-| Controlled Failover | HA | A | cluster healthy, 3+ replicas |
-| Kill Primary Pod | Chaos | A | cluster healthy |
-| Drain Node | Chaos | A | multi-node cluster |
-| Trigger Backup | Data Protection | A | no backup running |
-| Verify Backup | Data Protection | A | backup exists |
-| Configuration Change | Config | A | cluster healthy |
-| Operator Upgrade | Lifecycle | Both | target ≠ current + gate open |
-| DB Upgrade | Lifecycle | A then B | target ≠ current + gate open |
+Status legend: ✅ implemented in PR #348 · 🔜 planned
+
+| Operation | Category | Target | Precondition | Status |
+|---|---|---|---|---|
+| Scale Up | Topology | A | `instancesPerNode` < `MaxReplicas` | ✅ |
+| Scale Down | Topology | A | `instancesPerNode` > `MinReplicas` | ✅ |
+| DocumentDB Version Upgrade | Lifecycle | A | `instancesPerNode` ≥ 2 (rolling restart needs a peer) | ✅ |
+| Controlled Failover | HA | A | cluster healthy, ≥2 instances | 🔜 |
+| Kill Primary Pod | Chaos | A | cluster healthy | 🔜 |
+| Drain Node | Chaos | A | multi-node cluster | 🔜 |
+| Trigger Backup | Data Protection | A | no backup running | 🔜 |
+| Verify Backup | Data Protection | A | backup exists | 🔜 |
+| Configuration Change | Config | A | cluster healthy | 🔜 |
+| Operator Upgrade | Lifecycle | Both | target ≠ current + gate open | 🔜 |
 
 ### Sequencing Constraints
 
 | Constraint | Rule | Rationale |
 |---|---|---|
-| Min Topology | Never scale below 3 replicas | Maintains HA |
+| Min Topology | Never scale below `LONGHAUL_MIN_REPLICAS` (default 2) | Maintains HA |
 | Concurrent Ops | Max 1 disruptive op at a time | Overlapping disruptions are non-diagnosable |
 | Cooldown | Min gap between same-category ops (default 5 min) | Let cluster stabilize |
 | Steady-State Gate | Health check must pass before next op | Ensures recovery from previous op |
@@ -183,11 +187,15 @@ Each operation declares expected disruption and recovery budget:
 
 ```go
 type OutagePolicy struct {
-    AllowedDowntime     time.Duration  // e.g., 60s for failover
+    AllowedDowntime      time.Duration // reserved — not yet enforced by ExceededPolicy()
     AllowedWriteFailures int           // tolerated errors during window
-    MustRecoverWithin   time.Duration  // e.g., 5min to return to steady state
+    MustRecoverWithin    time.Duration // e.g., 5min to return to steady state
 }
 ```
+
+`AllowedDowntime` is declared on the policy struct but not yet consumed by the journal's
+`ExceededPolicy()` check — disruption verdicts today are based on `AllowedWriteFailures`
+and `MustRecoverWithin`. Wiring `AllowedDowntime` is tracked as future work.
 
 ---
 
@@ -246,31 +254,62 @@ The test binary uses only the Kubernetes API and MongoDB wire protocol — runs 
 
 ### Configuration
 
-All config via environment variables. Tests gated behind `LONGHAUL_ENABLED` — safely skipped in `go test ./...`:
+All config is read from environment variables by `cmd/longhaul/main.go` via
+`config.LoadFromEnv()`. The `LONGHAUL_ENABLED` flag exists in `config.go` but the binary
+entry point does not check it — running the driver simply runs the driver. The flag is
+retained for any future Ginkgo-style integration that wants a CI safety gate.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `LONGHAUL_ENABLED` | Yes | — | Must be `true`/`1`/`yes` to run |
-| `LONGHAUL_CLUSTER_NAME` | Yes | — | Target DocumentDB cluster CR name |
-| `LONGHAUL_NAMESPACE` | No | `default` | Kubernetes namespace |
-| `LONGHAUL_MAX_DURATION` | No | `30m` | Max duration (`0s` = run until failure) |
+| `LONGHAUL_CLUSTER_NAME` | Yes | — | Target DocumentDB CR name |
+| `LONGHAUL_NAMESPACE` | No | `default` | Kubernetes namespace of the target CR |
+| `LONGHAUL_MAX_DURATION` | No | `30m` | Max run duration; `0s` means run until failure |
+| `LONGHAUL_MONGO_URI` | No | derived | Override the mongo URI; otherwise built from the gateway service |
 | `LONGHAUL_NUM_WRITERS` | No | `5` | Concurrent writer goroutines |
-| `LONGHAUL_OP_COOLDOWN` | No | `5m` | Min interval between disruptive ops |
+| `LONGHAUL_NUM_VERIFIERS` | No | `2` | Concurrent verifier goroutines |
+| `LONGHAUL_OP_COOLDOWN` | No | `5m` | Minimum interval between disruptive ops |
+| `LONGHAUL_RECOVERY_TIMEOUT` | No | `5m` | Max time the cluster may stay unhealthy after an op |
+| `LONGHAUL_STEADY_STATE_WAIT` | No | `60s` | Required healthy window before the next op fires |
+| `LONGHAUL_MIN_REPLICAS` | No | `2` | Lower bound for scale-down |
+| `LONGHAUL_MAX_REPLICAS` | No | `5` | Upper bound for scale-up |
+| `LONGHAUL_REPORT_INTERVAL` | No | `1h` | How often the `longhaul-report` ConfigMap is written |
 
 ### Running
 
 **Local development (anyone):**
 ```bash
 cd test/longhaul
-LONGHAUL_ENABLED=true LONGHAUL_CLUSTER_NAME=documentdb-sample \
-  LONGHAUL_MAX_DURATION=10m go test ./... -v -timeout 0
+LONGHAUL_CLUSTER_NAME=documentdb-sample LONGHAUL_NAMESPACE=documentdb-test-ns \
+  LONGHAUL_MAX_DURATION=10m \
+  go run ./cmd/longhaul
 ```
 
-**Persistent canary (core team):**
-- Kubernetes Job on managed cluster (separate `longhaul` namespace)
-- On new operator release: release workflow upgrades canary via Helm + restarts Job
-- Grafana/OTel dashboard for monitoring (optional)
-- DocumentDB cluster preserved on failure for investigation
+The driver expects a reachable kubeconfig (in-cluster or `KUBECONFIG`) and uses it to
+read the DocumentDB CR, watch pods, and pull metrics-server samples.
+
+**Unit tests:**
+```bash
+cd test/longhaul
+go test ./...
+```
+
+**Persistent canary (core team):** the live driver runs in `documentdb-test-ns` on the
+[`longhaul-aks`](https://ms.portal.azure.com/#@microsoft.onmicrosoft.com/resource/subscriptions/81901d5e-31aa-46c5-b61a-537dbd5df1e7/resourceGroups/longhaul-rg/providers/Microsoft.ContainerService/managedClusters/longhaul-aks/workloads)
+cluster. Two GitHub Actions workflows wire it up:
+
+- `LONGHAUL - Build Test Driver Image` — builds and publishes the driver image to GHCR on
+  pushes to `developer/wentingwu/long-haul-tests` (and on every PR merge into `main` once
+  this PR lands).
+- `LONGHAUL - Deploy Test Driver to AKS` — chained via `workflow_run` on the build's
+  success. Uses a long-lived ServiceAccount-token kubeconfig stored in the
+  `LONGHAUL_KUBECONFIG` repo secret to roll the `longhaul-test` Deployment.
+- `LONGHAUL - Monitor` — hourly cron that fetches `kubectl get cm longhaul-report -o yaml`
+  and posts a workflow summary; alerts if the report is stale or shows failures.
+
+The driver runs as a `Deployment` (not a Job): if a process exits, it is restarted, and a
+human reviews the `longhaul-report` ConfigMap rather than chasing ghost Jobs. The
+DocumentDB cluster itself is never deleted by the driver — it is kept around for
+post-mortem investigation when failures fire.
 
 ### Failure Tiers
 
@@ -286,21 +325,21 @@ LONGHAUL_ENABLED=true LONGHAUL_CLUSTER_NAME=documentdb-sample \
 
 | Phase | Scope | Status |
 |---|---|---|
-| **1a** | Project skeleton + config + CI safety gate | ✅ Complete |
-| **1b** | Data-plane workload (writers, oracle, verifiers) | Next |
-| **1c** | Event journal (disruption window tracking) | Planned |
-| **1d** | Health monitor (steady-state detection, leak alerts) | Planned |
-| **1e** | Scale operations + scheduler pattern | Planned |
-| **1f** | Summary report (markdown on exit) | Planned |
-| **2a** | Backup & restore operations | Planned |
-| **2b** | HA & replication operations | Planned |
-| **2c** | Upgrade operations (operator + DB + schema) | Planned |
-| **2d** | Chaos operations (pod eviction, operator restart) | Planned |
-| **2e** | Failure tiers + auto-recovery logic | Planned |
-| **2f** | Kubernetes Job deployment (Dockerfile, RBAC) | Planned |
-| **2g** | Auto-upgrade workflow (triggered from release workflow) | Planned |
-| **2h** | Alerting workflow (hourly cron + human-in-the-loop) | Planned |
-| **3** | Multi-region canary (add/remove region, cross-region verification) | Future |
+| **1a** | Project skeleton + config | ✅ Complete |
+| **1b** | Data-plane workload (writers, oracle, verifiers) | ✅ Complete |
+| **1c** | Event journal (disruption window tracking) | ✅ Complete |
+| **1d** | Health monitor (steady-state detection, leak alerts) | ✅ Complete |
+| **1e** | Scale operations + weighted-random scheduler | ✅ Complete |
+| **1f** | `longhaul-report` ConfigMap reporter | ✅ Complete |
+| **2a** | Backup & restore operations | 🔜 Planned |
+| **2b** | HA primitives beyond what scale gives (controlled failover) | 🔜 Planned |
+| **2c** | DocumentDB version upgrade operation | ✅ Complete |
+| **2d** | Chaos operations (pod eviction, operator restart) | 🔜 Planned |
+| **2e** | Failure tiers + auto-recovery refinements | Partial — current verdict logic uses `AllowedWriteFailures` + `MustRecoverWithin` |
+| **2f** | In-cluster `Deployment` packaging (Dockerfile, RBAC, Helm-style manifests) | ✅ Complete |
+| **2g** | Auto-deploy chain (`workflow_run` from image build → AKS rollout) | ✅ Complete |
+| **2h** | Hourly monitor workflow + alerting | ✅ Complete |
+| **3** | Two-cluster topology (Primary + Baseline) and multi-region canary | 🔜 Planned |
 
 Each phase is a self-contained, demoable increment (~1-2 PRs).
 
@@ -310,8 +349,8 @@ Each phase is a self-contained, demoable increment (~1-2 PRs).
 
 | Project | Pattern We Adopt | Pattern We Skip |
 |---|---|---|
-| **Strimzi** | Run-until-failure loops; metrics collection | JUnit (we use Ginkgo) |
-| **CloudNative-PG** | Ginkgo framework; failover via pod delete + SIGSTOP | Single-sequence failover (we need continuous concurrent workload) |
+| **Strimzi** | Run-until-failure loops; metrics collection | JUnit (we run a standalone Go binary, not a test framework) |
+| **CloudNative-PG** | Failover via pod delete + SIGSTOP; metrics-server sampling | Ginkgo framework (we use a long-lived `Deployment` instead) |
 | **CockroachDB** | Chaos runner; separate workload from disruption; roachstress | Custom roachtest framework (too heavy) |
 | **Vitess** | Background stress goroutine; per-query tracking | No fault injection (we need disruptive ops) |
 
