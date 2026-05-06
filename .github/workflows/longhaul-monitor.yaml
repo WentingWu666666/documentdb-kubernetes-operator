@@ -5,7 +5,13 @@
 #
 # Polls the AKS cluster every hour to:
 # 1. Check health: Job status, report staleness, test result
-# 2. Auto-upgrade: If healthy, upgrade operator/DocumentDB to latest versions from repo
+# 2. Auto-upgrade operator: If healthy, upgrade the operator to the latest
+#    version published to GHCR (via Helm).
+# 3. Publish desired DocumentDB version: Write the latest published DocumentDB
+#    tag to the `longhaul-versions` ConfigMap. This workflow does NOT upgrade
+#    DocumentDB itself — the long-haul test driver reads the ConfigMap and
+#    performs the upgrade in-band as a load-aware operation, so continuous
+#    writers/verifiers can catch any data-integrity issues caused by it.
 #
 # Fails if: Job failed, ConfigMap reports FAIL, report is stale (>2h), or Job not found.
 #
