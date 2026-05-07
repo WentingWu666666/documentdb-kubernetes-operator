@@ -12,21 +12,25 @@ import (
 	"github.com/documentdb/documentdb-operator/test/longhaul/monitor"
 )
 
-// ScaleUp increases the cluster replica count by 1.
+// ScaleUp increases spec.instancesPerNode by 1 (HA scale dimension; range 1-3).
 type ScaleUp struct {
-	client      monitor.ClusterClient
-	healthMon   *monitor.HealthMonitor
-	maxReplicas int
-	recovery    time.Duration
+	client       monitor.ClusterClient
+	healthMon    *monitor.HealthMonitor
+	maxInstances int
+	recovery     time.Duration
 }
 
-// NewScaleUp creates a ScaleUp operation.
-func NewScaleUp(client monitor.ClusterClient, health *monitor.HealthMonitor, maxReplicas int, recovery time.Duration) *ScaleUp {
+// NewScaleUp creates a ScaleUp operation. maxInstances is clamped to the
+// CRD upper bound (3) to avoid admission rejections.
+func NewScaleUp(client monitor.ClusterClient, health *monitor.HealthMonitor, maxInstances int, recovery time.Duration) *ScaleUp {
+	if maxInstances > 3 {
+		maxInstances = 3
+	}
 	return &ScaleUp{
-		client:      client,
-		healthMon:   health,
-		maxReplicas: maxReplicas,
-		recovery:    recovery,
+		client:       client,
+		healthMon:    health,
+		maxInstances: maxInstances,
+		recovery:     recovery,
 	}
 }
 
@@ -34,20 +38,20 @@ func (s *ScaleUp) Name() string  { return "scale-up" }
 func (s *ScaleUp) Weight() int   { return 3 }
 
 func (s *ScaleUp) Precondition(ctx context.Context) (bool, string) {
-	current, err := s.client.GetCurrentReplicas(ctx)
+	current, err := s.client.GetInstancesPerNode(ctx)
 	if err != nil {
-		return false, fmt.Sprintf("cannot get replicas: %v", err)
+		return false, fmt.Sprintf("cannot get instancesPerNode: %v", err)
 	}
-	if current >= s.maxReplicas {
-		return false, fmt.Sprintf("already at max replicas (%d)", s.maxReplicas)
+	if current >= s.maxInstances {
+		return false, fmt.Sprintf("already at max instancesPerNode (%d)", s.maxInstances)
 	}
 	return true, ""
 }
 
 func (s *ScaleUp) Execute(ctx context.Context) error {
-	current, err := s.client.GetCurrentReplicas(ctx)
+	current, err := s.client.GetInstancesPerNode(ctx)
 	if err != nil {
-		return fmt.Errorf("get replicas: %w", err)
+		return fmt.Errorf("get instancesPerNode: %w", err)
 	}
 
 	target := current + 1
@@ -69,21 +73,25 @@ func (s *ScaleUp) OutagePolicy() journal.OutagePolicy {
 	}
 }
 
-// ScaleDown decreases the cluster replica count by 1.
+// ScaleDown decreases spec.instancesPerNode by 1 (HA scale dimension; range 1-3).
 type ScaleDown struct {
-	client      monitor.ClusterClient
-	healthMon   *monitor.HealthMonitor
-	minReplicas int
-	recovery    time.Duration
+	client       monitor.ClusterClient
+	healthMon    *monitor.HealthMonitor
+	minInstances int
+	recovery     time.Duration
 }
 
-// NewScaleDown creates a ScaleDown operation.
-func NewScaleDown(client monitor.ClusterClient, health *monitor.HealthMonitor, minReplicas int, recovery time.Duration) *ScaleDown {
+// NewScaleDown creates a ScaleDown operation. minInstances is clamped to the
+// CRD lower bound (1) to avoid admission rejections.
+func NewScaleDown(client monitor.ClusterClient, health *monitor.HealthMonitor, minInstances int, recovery time.Duration) *ScaleDown {
+	if minInstances < 1 {
+		minInstances = 1
+	}
 	return &ScaleDown{
-		client:      client,
-		healthMon:   health,
-		minReplicas: minReplicas,
-		recovery:    recovery,
+		client:       client,
+		healthMon:    health,
+		minInstances: minInstances,
+		recovery:     recovery,
 	}
 }
 
@@ -91,20 +99,20 @@ func (s *ScaleDown) Name() string  { return "scale-down" }
 func (s *ScaleDown) Weight() int   { return 2 }
 
 func (s *ScaleDown) Precondition(ctx context.Context) (bool, string) {
-	current, err := s.client.GetCurrentReplicas(ctx)
+	current, err := s.client.GetInstancesPerNode(ctx)
 	if err != nil {
-		return false, fmt.Sprintf("cannot get replicas: %v", err)
+		return false, fmt.Sprintf("cannot get instancesPerNode: %v", err)
 	}
-	if current <= s.minReplicas {
-		return false, fmt.Sprintf("already at min replicas (%d)", s.minReplicas)
+	if current <= s.minInstances {
+		return false, fmt.Sprintf("already at min instancesPerNode (%d)", s.minInstances)
 	}
 	return true, ""
 }
 
 func (s *ScaleDown) Execute(ctx context.Context) error {
-	current, err := s.client.GetCurrentReplicas(ctx)
+	current, err := s.client.GetInstancesPerNode(ctx)
 	if err != nil {
-		return fmt.Errorf("get replicas: %w", err)
+		return fmt.Errorf("get instancesPerNode: %w", err)
 	}
 
 	target := current - 1

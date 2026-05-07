@@ -119,8 +119,8 @@ func run(cfg config.Config) int {
 
 	// Configure operations.
 	ops := []operations.Operation{
-		operations.NewScaleUp(clusterClient, healthMon, cfg.MaxReplicas, cfg.RecoveryTimeout),
-		operations.NewScaleDown(clusterClient, healthMon, cfg.MinReplicas, cfg.RecoveryTimeout),
+		operations.NewScaleUp(clusterClient, healthMon, cfg.MaxInstances, cfg.RecoveryTimeout),
+		operations.NewScaleDown(clusterClient, healthMon, cfg.MinInstances, cfg.RecoveryTimeout),
 		operations.NewUpgradeDocumentDB(clusterClient, k8sClientset, healthMon, cfg.Namespace, cfg.RecoveryTimeout),
 	}
 

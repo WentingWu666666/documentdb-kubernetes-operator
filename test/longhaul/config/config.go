@@ -25,8 +25,10 @@ const (
 	EnvOpCooldown      = "LONGHAUL_OP_COOLDOWN"
 	EnvRecoveryTimeout = "LONGHAUL_RECOVERY_TIMEOUT"
 	EnvSteadyStateWait = "LONGHAUL_STEADY_STATE_WAIT"
-	EnvMinReplicas     = "LONGHAUL_MIN_REPLICAS"
-	EnvMaxReplicas     = "LONGHAUL_MAX_REPLICAS"
+	// Scale operation bounds. The DocumentDB CRD hard-caps spec.nodeCount=1,
+	// so the scale dimension actually exercised is spec.instancesPerNode (1-3).
+	EnvMinInstances = "LONGHAUL_MIN_INSTANCES"
+	EnvMaxInstances = "LONGHAUL_MAX_INSTANCES"
 
 	// Observability and reporting.
 	EnvReportInterval = "LONGHAUL_REPORT_INTERVAL"
@@ -61,11 +63,13 @@ type Config struct {
 	// SteadyStateWait is how long the cluster must be healthy before an operation fires.
 	SteadyStateWait time.Duration
 
-	// MinReplicas is the minimum replica count for scale operations.
-	MinReplicas int
+	// MinInstances is the minimum spec.instancesPerNode for scale-down.
+	// CRD lower bound is 1.
+	MinInstances int
 
-	// MaxReplicas is the maximum replica count for scale operations.
-	MaxReplicas int
+	// MaxInstances is the maximum spec.instancesPerNode for scale-up.
+	// CRD upper bound is 3.
+	MaxInstances int
 
 	// ReportInterval is how often checkpoint reports are generated.
 	ReportInterval time.Duration
@@ -83,8 +87,8 @@ func DefaultConfig() Config {
 		OpCooldown:      5 * time.Minute,
 		RecoveryTimeout: 5 * time.Minute,
 		SteadyStateWait: 60 * time.Second,
-		MinReplicas:     2,
-		MaxReplicas:     5,
+		MinInstances:    1,
+		MaxInstances:    3,
 		ReportInterval:  1 * time.Hour,
 	}
 }
@@ -154,20 +158,20 @@ func LoadFromEnv() (Config, error) {
 		cfg.SteadyStateWait = d
 	}
 
-	if v := os.Getenv(EnvMinReplicas); v != "" {
+	if v := os.Getenv(EnvMinInstances); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvMinReplicas, v, err)
+			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvMinInstances, v, err)
 		}
-		cfg.MinReplicas = n
+		cfg.MinInstances = n
 	}
 
-	if v := os.Getenv(EnvMaxReplicas); v != "" {
+	if v := os.Getenv(EnvMaxInstances); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvMaxReplicas, v, err)
+			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvMaxInstances, v, err)
 		}
-		cfg.MaxReplicas = n
+		cfg.MaxInstances = n
 	}
 
 	if v := os.Getenv(EnvReportInterval); v != "" {
@@ -204,11 +208,14 @@ func (c *Config) Validate() error {
 	if c.RecoveryTimeout <= 0 {
 		return fmt.Errorf("recovery timeout must be positive, got %s", c.RecoveryTimeout)
 	}
-	if c.MinReplicas < 1 {
-		return fmt.Errorf("min replicas must be at least 1, got %d", c.MinReplicas)
+	if c.MinInstances < 1 {
+		return fmt.Errorf("min instances must be at least 1, got %d", c.MinInstances)
 	}
-	if c.MaxReplicas < c.MinReplicas {
-		return fmt.Errorf("max replicas (%d) must be >= min replicas (%d)", c.MaxReplicas, c.MinReplicas)
+	if c.MaxInstances > 3 {
+		return fmt.Errorf("max instances must not exceed 3 (CRD upper bound for spec.instancesPerNode), got %d", c.MaxInstances)
+	}
+	if c.MaxInstances < c.MinInstances {
+		return fmt.Errorf("max instances (%d) must be >= min instances (%d)", c.MaxInstances, c.MinInstances)
 	}
 	return nil
 }

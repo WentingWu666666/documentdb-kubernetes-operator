@@ -22,8 +22,8 @@ var _ = Describe("Config", func() {
 			Expect(cfg.OpCooldown).To(Equal(5 * time.Minute))
 			Expect(cfg.RecoveryTimeout).To(Equal(5 * time.Minute))
 			Expect(cfg.SteadyStateWait).To(Equal(60 * time.Second))
-			Expect(cfg.MinReplicas).To(Equal(2))
-			Expect(cfg.MaxReplicas).To(Equal(5))
+			Expect(cfg.MinInstances).To(Equal(1))
+			Expect(cfg.MaxInstances).To(Equal(3))
 		})
 	})
 
@@ -35,7 +35,7 @@ var _ = Describe("Config", func() {
 				EnvEnabled, EnvMaxDuration, EnvNamespace, EnvClusterName,
 				EnvMongoURI, EnvNumWriters, EnvNumVerifiers,
 				EnvOpCooldown, EnvRecoveryTimeout, EnvSteadyStateWait,
-				EnvMinReplicas, EnvMaxReplicas, EnvReportInterval,
+				EnvMinInstances, EnvMaxInstances, EnvReportInterval,
 			} {
 				GinkgoT().Setenv(k, "")
 			}
@@ -146,12 +146,20 @@ var _ = Describe("Config", func() {
 			Expect(cfg.Validate()).To(MatchError(ContainSubstring("recovery timeout")))
 		})
 
-		It("fails when MaxReplicas < MinReplicas", func() {
+		It("fails when MaxInstances < MinInstances", func() {
 			cfg := DefaultConfig()
 			cfg.ClusterName = "test"
-			cfg.MinReplicas = 5
-			cfg.MaxReplicas = 3
-			Expect(cfg.Validate()).To(MatchError(ContainSubstring("max replicas")))
+			cfg.MinInstances = 3
+			cfg.MaxInstances = 2
+			Expect(cfg.Validate()).To(MatchError(ContainSubstring("max instances")))
+		})
+
+		It("fails when MaxInstances exceeds CRD upper bound (3)", func() {
+			cfg := DefaultConfig()
+			cfg.ClusterName = "test"
+			cfg.MinInstances = 1
+			cfg.MaxInstances = 4
+			Expect(cfg.Validate()).To(MatchError(ContainSubstring("must not exceed 3")))
 		})
 	})
 

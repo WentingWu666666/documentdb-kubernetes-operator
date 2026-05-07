@@ -159,8 +159,8 @@ Status legend: ✅ implemented in PR #348 · 🔜 planned
 
 | Operation | Category | Target | Precondition | Status |
 |---|---|---|---|---|
-| Scale Up | Topology | A | `instancesPerNode` < `MaxReplicas` | ✅ |
-| Scale Down | Topology | A | `instancesPerNode` > `MinReplicas` | ✅ |
+| Scale Up | Topology | A | `instancesPerNode` < `MaxInstances` (CRD upper bound: 3) | ✅ |
+| Scale Down | Topology | A | `instancesPerNode` > `MinInstances` (CRD lower bound: 1) | ✅ |
 | DocumentDB Version Upgrade | Lifecycle | A | `instancesPerNode` ≥ 2 (rolling restart needs a peer) | ✅ |
 | Controlled Failover | HA | A | cluster healthy, ≥2 instances | 🔜 |
 | Kill Primary Pod | Chaos | A | cluster healthy | 🔜 |
@@ -174,7 +174,7 @@ Status legend: ✅ implemented in PR #348 · 🔜 planned
 
 | Constraint | Rule | Rationale |
 |---|---|---|
-| Min Topology | Never scale below `LONGHAUL_MIN_REPLICAS` (default 2) | Maintains HA |
+| Min Topology | Never scale below `LONGHAUL_MIN_INSTANCES` (default 1, CRD floor) and never above `LONGHAUL_MAX_INSTANCES` (default 3, CRD ceiling) | Stays inside the spec.instancesPerNode range the operator's CRD admits |
 | Concurrent Ops | Max 1 disruptive op at a time | Overlapping disruptions are non-diagnosable |
 | Cooldown | Min gap between same-category ops (default 5 min) | Let cluster stabilize |
 | Steady-State Gate | Health check must pass before next op | Ensures recovery from previous op |
@@ -270,8 +270,8 @@ retained for any future Ginkgo-style integration that wants a CI safety gate.
 | `LONGHAUL_OP_COOLDOWN` | No | `5m` | Minimum interval between disruptive ops |
 | `LONGHAUL_RECOVERY_TIMEOUT` | No | `5m` | Max time the cluster may stay unhealthy after an op |
 | `LONGHAUL_STEADY_STATE_WAIT` | No | `60s` | Required healthy window before the next op fires |
-| `LONGHAUL_MIN_REPLICAS` | No | `2` | Lower bound for scale-down |
-| `LONGHAUL_MAX_REPLICAS` | No | `5` | Upper bound for scale-up |
+| `LONGHAUL_MIN_INSTANCES` | No | `1` | Lower bound for scale-down (`spec.instancesPerNode`; CRD floor is 1) |
+| `LONGHAUL_MAX_INSTANCES` | No | `3` | Upper bound for scale-up (`spec.instancesPerNode`; CRD ceiling is 3) |
 | `LONGHAUL_REPORT_INTERVAL` | No | `1h` | How often the `longhaul-report` ConfigMap is written |
 
 ### Running

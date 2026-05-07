@@ -36,18 +36,19 @@ type ClusterClient interface {
 	// GetClusterHealth returns the current health of the target cluster.
 	GetClusterHealth(ctx context.Context) (ClusterHealth, error)
 
-	// GetCurrentReplicas returns the current number of replicas.
-	GetCurrentReplicas(ctx context.Context) (int, error)
-
-	// ScaleCluster sets the desired replica count.
-	ScaleCluster(ctx context.Context, replicas int) error
-
 	// GetCurrentDocumentDBImageTag returns the tag portion of status.documentDBImage
 	// (e.g., "0.109.0" from "ghcr.io/.../documentdb:0.109.0").
 	// Returns empty string if status not yet populated.
 	GetCurrentDocumentDBImageTag(ctx context.Context) (string, error)
 
-	// UpgradeDocumentDB patches spec.documentDbVersion and spec.schemaVersion="auto".
+	// GetInstancesPerNode returns spec.instancesPerNode (range 1-3).
+	// 1 means single-instance (no HA); >=2 means at least one standby exists.
+	GetInstancesPerNode(ctx context.Context) (int, error)
+
+	// ScaleCluster sets the desired spec.instancesPerNode value (CRD range 1-3).
+	ScaleCluster(ctx context.Context, instancesPerNode int) error
+
+	// UpgradeDocumentDB patches spec.documentDBVersion and spec.schemaVersion="auto".
 	UpgradeDocumentDB(ctx context.Context, version string) error
 }
 

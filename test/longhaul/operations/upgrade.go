@@ -60,7 +60,19 @@ func (u *UpgradeDocumentDB) Name() string { return "upgrade-documentdb" }
 func (u *UpgradeDocumentDB) Weight() int { return 1 }
 
 // Precondition is satisfied when the desired version published by the
-// workflow differs from the running version observed in CR status.
+// workflow differs from the running version observed in CR status,
+// AND the cluster has at least one standby (instancesPerNode>=2) so the
+// rolling upgrade has an HA failover target.
+//
+// Skipping when instancesPerNode<2 is intentional: a single-instance cluster
+// has no standby to absorb writes, so a rolling upgrade WILL produce real
+// downtime. Reporting that as a policy violation is a true positive but not
+// useful — there is nothing the operator can do about it. The next scheduler
+// tick (10s later) re-evaluates this precondition, so as soon as the cluster
+// is scaled up to instancesPerNode>=2 the upgrade becomes eligible again.
+// Note: the global cooldown is NOT consumed by a skipped operation —
+// see scheduler.tryExecute(), lastOpTime is only updated after successful
+// executeOp(). So this guard is "free" from a scheduling perspective.
 func (u *UpgradeDocumentDB) Precondition(ctx context.Context) (bool, string) {
 	desired, err := u.readDesiredVersion(ctx)
 	if err != nil {
@@ -76,6 +88,14 @@ func (u *UpgradeDocumentDB) Precondition(ctx context.Context) (bool, string) {
 	}
 	if running == desired {
 		return false, fmt.Sprintf("already at desired version %s", desired)
+	}
+
+	ipn, err := u.client.GetInstancesPerNode(ctx)
+	if err != nil {
+		return false, fmt.Sprintf("cannot read instancesPerNode: %v", err)
+	}
+	if ipn < 2 {
+		return false, fmt.Sprintf("instancesPerNode=%d (no HA standby) — upgrade would cause real downtime; skipping", ipn)
 	}
 	return true, ""
 }

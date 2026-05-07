@@ -150,26 +150,35 @@ func (k *K8sClusterClient) GetClusterHealth(ctx context.Context) (ClusterHealth,
 	return health, nil
 }
 
-// GetCurrentReplicas reads spec.nodeCount from the DocumentDB CR.
-func (k *K8sClusterClient) GetCurrentReplicas(ctx context.Context) (int, error) {
+// GetInstancesPerNode reads spec.instancesPerNode from the DocumentDB CR.
+// Range is 1-3 per the CRD; 1 means no HA, >=2 means at least one standby.
+func (k *K8sClusterClient) GetInstancesPerNode(ctx context.Context) (int, error) {
 	cr, err := k.dynamicClient.Resource(k.crGVR).Namespace(k.namespace).Get(ctx, k.clusterName, metav1.GetOptions{})
 	if err != nil {
 		return 0, fmt.Errorf("failed to get DocumentDB CR: %w", err)
 	}
 
-	nodeCount, found, err := unstructured.NestedInt64(cr.Object, "spec", "nodeCount")
-	if err != nil || !found {
-		return 0, fmt.Errorf("spec.nodeCount not found: %w", err)
+	ipn, found, err := unstructured.NestedInt64(cr.Object, "spec", "instancesPerNode")
+	if err != nil {
+		return 0, fmt.Errorf("spec.instancesPerNode read error: %w", err)
 	}
-
-	return int(nodeCount), nil
+	if !found {
+		// Field omitted on CR — operator default is 1 (single instance).
+		return 1, nil
+	}
+	return int(ipn), nil
 }
 
-// ScaleCluster patches spec.nodeCount on the DocumentDB CR.
-func (k *K8sClusterClient) ScaleCluster(ctx context.Context, replicas int) error {
+// ScaleCluster patches spec.instancesPerNode on the DocumentDB CR.
+//
+// Note: spec.nodeCount is hard-capped at 1 by the CRD (minimum=maximum=1),
+// so the only scale dimension exposed today is instancesPerNode (range 1-3).
+// Each instance is a CNPG replica (1 primary + N-1 standbys); growing this
+// dimension is what gives the cluster HA.
+func (k *K8sClusterClient) ScaleCluster(ctx context.Context, instancesPerNode int) error {
 	patch := map[string]interface{}{
 		"spec": map[string]interface{}{
-			"nodeCount": replicas,
+			"instancesPerNode": instancesPerNode,
 		},
 	}
 	patchBytes, err := json.Marshal(patch)
@@ -206,12 +215,13 @@ func (k *K8sClusterClient) GetCurrentDocumentDBImageTag(ctx context.Context) (st
 	return image[idx+1:], nil
 }
 
-// UpgradeDocumentDB patches the DocumentDB CR to set documentDbVersion
+// UpgradeDocumentDB patches the DocumentDB CR to set documentDBVersion
 // and schemaVersion="auto" so the operator performs a rolling upgrade.
+// NOTE: the CRD field is documentDBVersion (capital DB), not documentDbVersion.
 func (k *K8sClusterClient) UpgradeDocumentDB(ctx context.Context, version string) error {
 	patch := map[string]interface{}{
 		"spec": map[string]interface{}{
-			"documentDbVersion": version,
+			"documentDBVersion": version,
 			"schemaVersion":     "auto",
 		},
 	}
