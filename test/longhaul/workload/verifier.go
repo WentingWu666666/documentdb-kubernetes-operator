@@ -23,11 +23,22 @@ const (
 
 // Verifier periodically scans the workload collection to detect
 // sequence gaps and checksum mismatches in acknowledged writes.
+//
+// To bound the per-cycle scan cost over a multi-day run, the verifier tracks
+// the next expected sequence per writer in nextSeq and only scans documents
+// with seq >= nextSeq. Without this, a 100ms-per-write writer accumulates
+// ~864k docs/day and verifyAll would re-read the entire history every 10s
+// (~75M doc-reads/hour per writer), which both saturates the cluster and
+// turns the verifier's own load into a confounding signal in the report.
 type Verifier struct {
 	id         string
 	metrics    *Metrics
 	journal    *journal.Journal
 	collection *mongo.Collection
+
+	// nextSeq is the next sequence number we expect to see for each writer.
+	// Only mutated from the verifier goroutine, so no lock is needed.
+	nextSeq map[string]int64
 }
 
 // NewVerifier creates a verifier with the given ID.
@@ -39,6 +50,7 @@ func NewVerifier(id string, db *mongo.Database, metrics *Metrics, j *journal.Jou
 		metrics:    metrics,
 		journal:    j,
 		collection: coll,
+		nextSeq:    make(map[string]int64),
 	}
 }
 
@@ -88,16 +100,24 @@ func (v *Verifier) verifyAll(ctx context.Context) {
 }
 
 func (v *Verifier) verifyWriter(ctx context.Context, writerID string) {
-	// Query all documents for this writer, ordered by sequence.
+	// Resume from where the previous cycle left off. First-ever scan starts at 1.
+	expectedSeq := v.nextSeq[writerID]
+	if expectedSeq == 0 {
+		expectedSeq = 1
+	}
+
 	opts := options.Find().SetSort(bson.D{{Key: "seq", Value: 1}})
-	cursor, err := v.collection.Find(ctx, bson.D{{Key: "writer_id", Value: writerID}}, opts)
+	filter := bson.D{
+		{Key: "writer_id", Value: writerID},
+		{Key: "seq", Value: bson.D{{Key: "$gte", Value: expectedSeq}}},
+	}
+	cursor, err := v.collection.Find(ctx, filter, opts)
 	if err != nil {
 		v.journal.Warn("verifier", fmt.Sprintf("query failed for writer %s: %v", writerID, err))
 		return
 	}
 	defer cursor.Close(ctx)
 
-	var expectedSeq int64 = 1
 	for cursor.Next(ctx) {
 		var doc WriteDocument
 		if err := cursor.Decode(&doc); err != nil {
@@ -124,6 +144,11 @@ func (v *Verifier) verifyWriter(ctx context.Context, writerID string) {
 				writerID, doc.Seq, doc.Checksum, expected))
 		}
 	}
+
+	// Persist the resume point. If the cursor returned no rows, expectedSeq is
+	// unchanged and we'll re-scan from the same point next cycle (correct: a
+	// gap might fill in later when a delayed/recovered write commits).
+	v.nextSeq[writerID] = expectedSeq
 }
 
 // StartVerifiers launches n verifiers and returns them.

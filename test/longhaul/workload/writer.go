@@ -93,6 +93,19 @@ func (w *Writer) writeOne(ctx context.Context) {
 
 	_, err := w.collection.InsertOne(ctx, doc)
 	if err != nil {
+		// Retryable writes are on by default in the v2 driver, so a network
+		// blip during a disruption window can produce this sequence:
+		//   1. driver sends InsertOne, server commits, ACK is dropped
+		//   2. driver auto-retries the same _id, server returns code 11000
+		//   3. InsertOne returns a duplicate-key error to us
+		// The data is durably committed in case (3), so counting it as a write
+		// failure (and feeding the policy/AllowedWriteFailures gate) would turn
+		// successful writes into spurious FAIL verdicts. Treat dup-key as a
+		// successful, idempotent ACK instead.
+		if mongo.IsDuplicateKeyError(err) {
+			w.metrics.WriteAcknowledged.Add(1)
+			return
+		}
 		w.metrics.WriteFailed.Add(1)
 		w.journal.RecordWriteFailure()
 		return
