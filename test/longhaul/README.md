@@ -161,3 +161,36 @@ It does **not** run in any PR-gated CI workflow.
 
 The config unit tests (`test/longhaul/config/`) run unconditionally and are included in normal
 CI test runs — they are fast (~0.002s) and require no cluster.
+
+## Relationship to `test/e2e/`
+
+The `test/e2e/` Ginkgo suite (added in PR #346) and this long haul harness are **separate
+modules with intentionally different shapes**. They share a problem domain (exercising a
+DocumentDB cluster) but answer different questions:
+
+| | `test/e2e/` | `test/longhaul/` |
+|---|---|---|
+| Shape | Go test binary (Ginkgo specs) | Standalone long-running daemon |
+| Lifetime | Minutes per spec | Days–weeks per run |
+| Asserts | One behavior per spec, then exits | Continuous invariants over time |
+| Failure mode | `t.Fail` per spec | Journal entry + alert + auto-restart |
+| Cluster | Created + torn down per run | Long-lived dedicated AKS cluster |
+| Operator API | Typed (`previewv1.DocumentDB` via controller-runtime) | Dynamic client (no operator import) |
+
+### Code that could be shared in the future
+
+The e2e suite has helpers in `test/e2e/pkg/e2eutils/` that this harness will likely consume
+once it grows beyond the current scope:
+
+- `e2eutils/mongo` — `BuildURI` (URL-escapes username/password), TLS-from-CA-bundle, `Handle`
+  with port-forward + secret-backed credentials. The long haul driver currently takes a raw
+  `LONGHAUL_MONGO_URI` string; when it moves to per-secret credentials or in-cluster TLS,
+  these helpers become directly applicable.
+- `e2eutils/operatorhealth` — pod-ready / CRD-ready gating used during e2e setup. The
+  monitor's `isPodReady` could delegate to this when the modules are unified.
+- `e2eutils/clusterprobe` — CRD presence checks.
+
+A shared `test/shared/` module is **deliberately not introduced yet**: the modules' Go and
+dependency versions differ today, and the only currently-duplicated surface (raw mongo
+connect + ping) is too small to justify the third-module overhead. Revisit this when the
+long haul driver adopts the same connection model as e2e.
