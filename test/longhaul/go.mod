@@ -1,15 +1,15 @@
 module github.com/documentdb/documentdb-operator/test/longhaul
 
-go 1.26.0
+go 1.25.9
 
 require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	go.mongodb.org/mongo-driver/v2 v2.2.1
-	k8s.io/api v0.36.0
-	k8s.io/apimachinery v0.36.0
-	k8s.io/client-go v0.36.0
-	k8s.io/metrics v0.36.0
+	k8s.io/api v0.35.0
+	k8s.io/apimachinery v0.35.0
+	k8s.io/client-go v0.35.0
+	k8s.io/metrics v0.35.0
 )
 
 require (
