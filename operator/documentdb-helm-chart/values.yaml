@@ -37,6 +37,27 @@ image:
   walreplica:
     repository: ghcr.io/documentdb/documentdb-kubernetes-operator/wal-replica
     pullPolicy: Always
+
+# PodDisruptionBudget for the operator. Disabled by default because the
+# operator ships with replicaCount: 1 and a PDB on a single-replica deployment
+# blocks node drains. Enable when running multi-replica with leader election.
+# Set exactly one of minAvailable or maxUnavailable; if both are set, only
+# minAvailable is honored.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+# Probes for the CNPG plugin sidecars (sidecar-injector, wal-replica).
+# Both are gRPC servers on port 9090; TCP socket probes are used because
+# the plugins do not expose an HTTP health endpoint. Set probe.enabled=false
+# to omit the probe (e.g., if you supply your own via a patch).
+pluginProbes:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
 cloudnative-pg:
   namespaceOverride: cnpg-system
   additionalEnv:
