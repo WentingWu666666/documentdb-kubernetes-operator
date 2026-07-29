@@ -60,9 +60,9 @@ func (v *DocumentDBValidator) ensureImageVolumeSupported(ctx context.Context, na
 		"the Kubernetes ImageVolume feature is not enabled on this cluster, but it is required by the DocumentDB " +
 			"operator to mount the DocumentDB extension into PostgreSQL pods. ImageVolume is GA (on by default) in " +
 			"Kubernetes 1.35+. On Kubernetes 1.33/1.34 you may enable the ImageVolume feature gate on both the " +
-			"kube-apiserver and every kubelet, and ensure the container runtime supports it (containerd >= 2.1 or " +
-			"CRI-O >= 1.33). Managed offerings (AKS/EKS/GKE) generally cannot enable this before it ships on by " +
-			"default. See https://kubernetes.io/docs/concepts/storage/volumes/#image",
+			"kube-apiserver and every kubelet; the container runtime must also support it (containerd >= 2.1 or " +
+			"CRI-O >= 1.33), which this preflight cannot verify. " +
+			"See https://kubernetes.io/docs/concepts/storage/volumes/#image",
 	)
 }
 
