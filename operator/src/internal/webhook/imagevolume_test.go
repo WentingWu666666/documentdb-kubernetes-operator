@@ -80,6 +80,23 @@ func rejectAll(_ client.Object) error {
 	return fmt.Errorf("pods \"probe\" is forbidden: violates PodSecurity \"restricted:latest\"")
 }
 
+// pruneImageVolume models a Kubernetes 1.33/1.34 API server with the ImageVolume
+// beta gate OFF: the Pod is admitted (no error), but the API server silently
+// strips the disabled ImageVolumeSource from the stored/returned spec. This is
+// the failure mode that a plain error check misses.
+func pruneImageVolume(obj client.Object) error {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+	for i := range pod.Spec.Volumes {
+		if pod.Spec.Volumes[i].VolumeSource.Image != nil {
+			pod.Spec.Volumes[i].VolumeSource.Image = nil
+		}
+	}
+	return nil
+}
+
 var _ = Describe("ImageVolume capability probe", func() {
 	BeforeEach(func() {
 		// The positive-result cache is a package global; reset it so specs
@@ -102,6 +119,13 @@ var _ = Describe("ImageVolume capability probe", func() {
 			Expect(supported).To(BeFalse())
 		})
 
+		It("reports unsupported when the image volume is admitted but pruned (gate off)", func() {
+			v := newValidatorWithCreate(nil, pruneImageVolume)
+			supported, conclusive := v.probeImageVolume(context.Background(), "default")
+			Expect(conclusive).To(BeTrue())
+			Expect(supported).To(BeFalse())
+		})
+
 		It("is inconclusive when the baseline Pod is rejected", func() {
 			v := newValidatorWithCreate(nil, rejectAll)
 			supported, conclusive := v.probeImageVolume(context.Background(), "default")
@@ -119,6 +143,14 @@ var _ = Describe("ImageVolume capability probe", func() {
 
 		It("blocks creation with an actionable error when unsupported", func() {
 			v := newValidatorWithCreate(nil, rejectImageVolume)
+			err := v.ensureImageVolumeSupported(context.Background(), "default")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("ImageVolume feature is not enabled"))
+			Expect(imageVolumeConfirmed.Load()).To(BeFalse())
+		})
+
+		It("blocks creation when the image volume is admitted but pruned (gate off)", func() {
+			v := newValidatorWithCreate(nil, pruneImageVolume)
 			err := v.ensureImageVolumeSupported(context.Background(), "default")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("ImageVolume feature is not enabled"))

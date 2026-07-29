@@ -74,30 +74,62 @@ func (v *DocumentDBValidator) ensureImageVolumeSupported(ctx context.Context, na
 //   - image:    an ImageVolumeSource volume.
 //
 // Interpretation:
-//   - baseline rejected           -> the environment blocks pod creation
+//   - baseline rejected             -> the environment blocks pod creation
 //     entirely (PSA, quota, other webhooks); inconclusive.
-//   - baseline ok, image ok       -> ImageVolume is supported.
-//   - baseline ok, image rejected -> the image volume is the sole difference,
+//   - baseline ok, image rejected   -> the image volume is the sole difference,
 //     so ImageVolume is unsupported.
+//   - baseline ok, image accepted but the ImageVolumeSource was pruned from the
+//     returned Pod -> the feature gate is off, so the API server silently drops
+//     the disabled field instead of rejecting it; ImageVolume is unsupported.
+//   - baseline ok, image accepted and the ImageVolumeSource survived -> the
+//     feature is supported.
+//
+// The pruning case is the important one: on Kubernetes 1.33/1.34 with the
+// ImageVolume beta gate OFF, a dry-run create does NOT fail; the API server
+// admits the Pod and simply strips the unknown/disabled volume source. Relying
+// on a create error alone therefore false-positives as "supported". We close
+// that gap by inspecting the returned object for field retention.
 //
 // The second return value reports whether the result is conclusive.
 func (v *DocumentDBValidator) probeImageVolume(ctx context.Context, namespace string) (supported bool, conclusive bool) {
-	if err := v.dryRunProbePod(ctx, namespace, baselineProbeVolume()); err != nil {
+	if _, err := v.dryRunProbePod(ctx, namespace, baselineProbeVolume()); err != nil {
 		documentdbLog.Info("ImageVolume preflight inconclusive: baseline probe pod rejected", "error", err.Error())
 		return false, false
 	}
 
-	if err := v.dryRunProbePod(ctx, namespace, imageProbeVolume()); err != nil {
+	returned, err := v.dryRunProbePod(ctx, namespace, imageProbeVolume())
+	if err != nil {
 		documentdbLog.Info("ImageVolume preflight: image-volume probe pod rejected while baseline passed; feature unavailable", "error", err.Error())
+		return false, true
+	}
+
+	if !hasImageVolume(returned) {
+		documentdbLog.Info("ImageVolume preflight: image-volume probe pod admitted but the ImageVolumeSource was pruned from the returned spec; feature gate is off, feature unavailable")
 		return false, true
 	}
 
 	return true, true
 }
 
+// hasImageVolume reports whether the server-returned Pod still carries the probe
+// volume as an ImageVolumeSource. When the ImageVolume feature gate is off the
+// API server prunes the field, so its absence means the feature is unavailable.
+func hasImageVolume(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	for _, vol := range pod.Spec.Volumes {
+		if vol.Name == imageVolumeProbeVolumeName {
+			return vol.Image != nil
+		}
+	}
+	return false
+}
+
 // dryRunProbePod submits a minimal Pod carrying the given probe volume as a
-// server-side dry-run (never persisted) and returns the API server's verdict.
-func (v *DocumentDBValidator) dryRunProbePod(ctx context.Context, namespace string, volume corev1.Volume) error {
+// server-side dry-run (never persisted) and returns the Pod as processed by the
+// API server (with defaulting and field pruning applied) alongside its verdict.
+func (v *DocumentDBValidator) dryRunProbePod(ctx context.Context, namespace string, volume corev1.Volume) (*corev1.Pod, error) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "documentdb-imagevolume-preflight-",
@@ -115,7 +147,8 @@ func (v *DocumentDBValidator) dryRunProbePod(ctx context.Context, namespace stri
 			Volumes: []corev1.Volume{volume},
 		},
 	}
-	return v.Create(ctx, pod, client.DryRunAll)
+	err := v.Create(ctx, pod, client.DryRunAll)
+	return pod, err
 }
 
 // baselineProbeVolume returns an emptyDir volume, which every Kubernetes
