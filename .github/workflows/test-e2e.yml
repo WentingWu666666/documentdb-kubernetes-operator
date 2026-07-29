@@ -344,3 +344,94 @@ jobs:
             /tmp/cluster-logs/
           if-no-files-found: ignore
           retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # ImageVolume preflight (positive path, K8s < 1.35).
+  #
+  # Proves the operator works on Kubernetes versions BELOW the 1.35 GA of the
+  # ImageVolume feature, provided the feature gate is enabled. On these
+  # clusters the webhook's capability probe must ADMIT the DocumentDB, and the
+  # extension image must actually MOUNT at runtime (containerd >= 2.1, shipped
+  # in kind's 1.33/1.34 node images) for the cluster to reach Healthy.
+  #
+  # No Ginkgo specs run here on purpose: the composite action already deploys a
+  # DocumentDB and waits for Healthy as part of setup, so a green setup IS the
+  # end-to-end assertion. If the gate were off or the runtime too old, setup
+  # would fail. The gate-OFF / blocked path is covered by the webhook unit
+  # tests (operator/src/internal/webhook), not by CI.
+  # ---------------------------------------------------------------------------
+  imagevolume-preflight:
+    name: ImageVolume preflight (k8s ${{ matrix.kubernetes_version }})
+    needs: [build]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Lowest supported versions where ImageVolume is still beta/off by
+        # default; the composite action turns the gate on for both.
+        kubernetes_version: [v1.33.7, v1.34.3]
+    env:
+      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      EXT_IMAGE_TAG: ${{ needs.build.outputs.ext_image_tag }}
+      CHART_VERSION: ${{ needs.build.outputs.chart_version || '0.1.0' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download platform images artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-platform-images
+          path: ./artifacts/build-platform-images
+
+      - name: Download helm chart artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-helm-chart-amd64
+          path: ./artifacts/build-helm-chart-amd64
+
+      - name: Setup test environment (ImageVolume gate enabled)
+        uses: ./.github/actions/setup-test-environment
+        with:
+          test-type: 'e2e'
+          architecture: 'amd64'
+          runner: 'ubuntu-22.04'
+          test-scenario-name: imagevolume
+          node-count: '1'
+          instances-per-node: '1'
+          cert-manager-namespace: ${{ env.CERT_MANAGER_NS }}
+          operator-namespace: ${{ env.OPERATOR_NS }}
+          db-namespace: ${{ env.DB_NS }}
+          db-cluster-name: ${{ env.DB_NAME }}
+          db-username: ${{ env.DB_USERNAME }}
+          db-password: ${{ env.DB_PASSWORD }}
+          db-port: ${{ env.DB_PORT }}
+          image-tag: ${{ env.IMAGE_TAG }}
+          documentdb-image-tag: ${{ env.EXT_IMAGE_TAG }}
+          chart-version: ${{ env.CHART_VERSION }}
+          use-external-images: 'false'
+          kubernetes-version: ${{ matrix.kubernetes_version }}
+          enable-image-volume-gate: 'true'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository-owner: ${{ github.repository_owner }}
+
+      - name: Collect cluster diagnostics
+        if: failure()
+        uses: ./.github/actions/collect-logs
+        with:
+          architecture: amd64
+          operator-namespace: ${{ env.OPERATOR_NS }}
+          db-namespace: ${{ env.DB_NS }}
+          db-name: ${{ env.DB_NAME }}
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagevolume-preflight-logs-${{ matrix.kubernetes_version }}-${{ github.run_attempt }}
+          path: |
+            /tmp/cluster-logs/
+          if-no-files-found: ignore
+          retention-days: 14
