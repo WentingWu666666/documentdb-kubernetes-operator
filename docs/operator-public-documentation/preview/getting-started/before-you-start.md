@@ -19,13 +19,18 @@ Before installing the DocumentDB Kubernetes Operator, ensure you have the follow
 
 | Component | Minimum Version | Purpose | Installation Guide |
 |-----------|-----------------|---------|-------------------|
-| **Kubernetes cluster** | 1.35+ | Container orchestration platform | See [Cluster Options](#kubernetes-cluster-options) |
-| **kubectl** | 1.35+ | Kubernetes command-line tool | [Install kubectl](https://kubernetes.io/docs/tasks/tools/) |
+| **Kubernetes cluster** | 1.35+ (or 1.33/1.34 with the ImageVolume gate enabled) | Container orchestration platform | See [Cluster Options](#kubernetes-cluster-options) |
+| **kubectl** | 1.33+ | Kubernetes command-line tool | [Install kubectl](https://kubernetes.io/docs/tasks/tools/) |
 | **Helm** | 3.x | Package manager for Kubernetes | [Install Helm](https://helm.sh/docs/intro/install/) |
 | **cert-manager** | 1.19+ | TLS certificate management | [Install cert-manager](https://cert-manager.io/docs/installation/) |
 
-!!! warning "Kubernetes 1.35+ with containerd or CRI-O Required"
-    The operator requires Kubernetes 1.35 or later because it uses the [ImageVolume](https://kubernetes.io/docs/concepts/storage/volumes/#image) feature (GA in Kubernetes 1.35) to mount the DocumentDB extension into PostgreSQL pods. The cluster must use a **containerd** or **CRI-O** container runtime — Docker does not support ImageVolumes.
+!!! warning "The ImageVolume feature and a containerd or CRI-O runtime are required"
+    The operator uses the [ImageVolume](https://kubernetes.io/docs/concepts/storage/volumes/#image) feature to mount the DocumentDB extension into PostgreSQL pods, so the feature **must be available on your cluster**. It is GA (on by default) in **Kubernetes 1.35+** — the recommended baseline. The cluster must use a **containerd** or **CRI-O** container runtime; Docker does not support ImageVolumes.
+
+    When you create a `DocumentDB`, the operator's admission webhook probes for ImageVolume support and **rejects the resource with an actionable error if the feature is unavailable**, so you find out immediately instead of waiting for pods that never become ready.
+
+!!! note "Advanced: running on Kubernetes 1.33 or 1.34"
+    ImageVolume is a beta feature that is **off by default** on Kubernetes 1.33 and 1.34. On a self-managed cluster you can still run the operator there by enabling the `ImageVolume` [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) on **both** the kube-apiserver and every kubelet, and ensuring the node's container runtime supports image volumes (**containerd ≥ 2.1** or **CRI-O ≥ 1.33**). Managed offerings (AKS/EKS/GKE) generally do not let you toggle apiserver/kubelet feature gates, so use 1.35+ there.
 
 ### Optional components
 
@@ -38,7 +43,7 @@ Before installing the DocumentDB Kubernetes Operator, ensure you have the follow
 
 ### Kubernetes cluster options
 
-The operator runs on any conformant Kubernetes distribution (1.35+). Choose based on your environment:
+The operator runs on any conformant Kubernetes distribution (1.35+, or 1.33/1.34 with the ImageVolume feature gate enabled). Choose based on your environment:
 
 === "Local Development"
 
