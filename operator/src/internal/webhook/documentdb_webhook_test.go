@@ -242,7 +242,12 @@ var _ = Describe("ValidateCreate admission handler", func() {
 	var v *DocumentDBValidator
 
 	BeforeEach(func() {
-		v = &DocumentDBValidator{}
+		// ValidateCreate now runs the ImageVolume capability probe, which
+		// issues dry-run Pod creates. Back the validator with a client that
+		// models a cluster where ImageVolume is supported so these specs
+		// exercise the spec-level validation path.
+		imageVolumeConfirmed.Store(false)
+		v = newValidatorWithCreate(nil, acceptAll)
 	})
 
 	It("allows a valid DocumentDB resource", func() {
@@ -256,6 +261,14 @@ var _ = Describe("ValidateCreate admission handler", func() {
 		db := newTestDocumentDB("0.110.0", "0.112.0", "")
 		_, err := v.ValidateCreate(context.Background(), db)
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("blocks creation when the cluster lacks ImageVolume support", func() {
+		v = newValidatorWithCreate(nil, rejectImageVolume)
+		db := newTestDocumentDB("0.112.0", "", "")
+		_, err := v.ValidateCreate(context.Background(), db)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("ImageVolume feature is not enabled"))
 	})
 })
 

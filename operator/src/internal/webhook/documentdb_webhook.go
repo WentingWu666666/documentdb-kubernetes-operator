@@ -47,8 +47,18 @@ func (v *DocumentDBValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 // +kubebuilder:webhook:path=/validate-documentdb-io-preview-documentdb,mutating=false,failurePolicy=fail,sideEffects=None,groups=documentdb.io,resources=dbs,verbs=create;update,versions=preview,name=vdocumentdb.kb.io,admissionReviewVersions=v1
 
 // ValidateCreate validates a DocumentDB resource on creation.
-func (v *DocumentDBValidator) ValidateCreate(_ context.Context, documentdb *dbpreview.DocumentDB) (admission.Warnings, error) {
+func (v *DocumentDBValidator) ValidateCreate(ctx context.Context, documentdb *dbpreview.DocumentDB) (admission.Warnings, error) {
 	documentdbLog.Info("Validation for DocumentDB upon creation", "name", documentdb.Name, "namespace", documentdb.Namespace)
+
+	// Cluster-capability preflight: block creation up-front when the cluster
+	// does not support the ImageVolume feature the operator relies on to mount
+	// the DocumentDB extension. Runs only on create because it reflects a
+	// cluster-wide capability, not a per-spec property.
+	if err := v.ensureImageVolumeSupported(ctx, documentdb.Namespace); err != nil {
+		return nil, apierrors.NewForbidden(
+			schema.GroupResource{Group: "documentdb.io", Resource: "dbs"},
+			documentdb.Name, err)
+	}
 
 	allErrs := v.validate(documentdb)
 	if len(allErrs) == 0 {
