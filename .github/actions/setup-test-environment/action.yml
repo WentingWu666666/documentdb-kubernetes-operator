@@ -77,10 +77,14 @@ inputs:
     description: 'Kubernetes version for Kind cluster (e.g., v1.35.0, v1.34.0)'
     required: false
     default: 'v1.35.0'
-  enable-image-volume-gate:
-    description: 'Enable the Kubernetes ImageVolume feature gate on the kind cluster (apiserver + kubelet). Needed to exercise the operator on K8s < 1.35, where the gate is beta/off-by-default.'
+  kind-feature-gates:
+    description: 'Comma-separated list of Kubernetes feature gates to enable on the kind cluster (apiserver + kubelet), e.g. "ImageVolume" or "ImageVolume,SomeOtherGate". Useful for exercising beta/off-by-default features. Empty means use cluster defaults.'
     required: false
-    default: 'false'
+    default: ''
+  deploy-documentdb:
+    description: 'Whether the action should deploy a DocumentDB and wait for it to become Healthy as part of setup. Set to "false" to provision only the cluster + operator and let the caller create its own resources (e.g. to assert a webhook rejection).'
+    required: false
+    default: 'true'
   released-chart-version:
     description: 'Install operator from the public GHCR OCI Helm chart instead of built artifacts. Use "latest" to resolve the highest stable SemVer tag published to GHCR, or pass an explicit version (e.g. "0.2.0") for reproducible installs (recommended).'
     required: false
@@ -221,25 +225,29 @@ runs:
         mongosh --version
         echo "✓ mongosh installed successfully for ${{ inputs.architecture }}"
 
-    - name: Generate kind config (ImageVolume feature gate)
+    - name: Generate kind config (feature gates)
       id: kind-config
-      if: inputs.enable-image-volume-gate == 'true'
+      if: inputs.kind-feature-gates != ''
       shell: bash
       run: |
-        # The ImageVolume feature is beta/off-by-default before Kubernetes
-        # 1.35. To exercise the operator on 1.33/1.34 we must turn the gate on
-        # for every control-plane and node component. A top-level featureGates
-        # block in the kind config applies to the apiserver, controller-manager,
-        # scheduler, and kubelet.
-        CONFIG_PATH="${RUNNER_TEMP}/kind-imagevolume-config.yaml"
-        cat > "$CONFIG_PATH" <<'EOF'
-        kind: Cluster
-        apiVersion: kind.x-k8s.io/v1alpha4
-        featureGates:
-          ImageVolume: true
-        EOF
+        # Enable the requested feature gates on every control-plane and node
+        # component. A top-level featureGates block in the kind config applies
+        # to the apiserver, controller-manager, scheduler, and kubelet -- which
+        # is what beta/off-by-default features (e.g. ImageVolume before its 1.35
+        # GA) require to be exercised end-to-end.
+        CONFIG_PATH="${RUNNER_TEMP}/kind-feature-gates-config.yaml"
+        {
+          echo "kind: Cluster"
+          echo "apiVersion: kind.x-k8s.io/v1alpha4"
+          echo "featureGates:"
+          IFS=',' read -ra GATES <<< "${{ inputs.kind-feature-gates }}"
+          for gate in "${GATES[@]}"; do
+            gate="$(echo "$gate" | xargs)"  # trim whitespace
+            [ -n "$gate" ] && echo "  ${gate}: true"
+          done
+        } > "$CONFIG_PATH"
         echo "path=$CONFIG_PATH" >> "$GITHUB_OUTPUT"
-        echo "Generated kind config enabling the ImageVolume feature gate:"
+        echo "Generated kind config enabling feature gates: ${{ inputs.kind-feature-gates }}"
         cat "$CONFIG_PATH"
 
     - name: Create kind cluster
@@ -748,6 +756,7 @@ runs:
         echo "✓ DocumentDB credentials secret created successfully"
 
     - name: Deploy DocumentDB cluster
+      if: inputs.deploy-documentdb == 'true'
       shell: bash
       run: |
         echo "Deploying DocumentDB cluster on ${{ inputs.architecture }} architecture..."

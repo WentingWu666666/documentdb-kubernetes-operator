@@ -413,7 +413,7 @@ jobs:
           chart-version: ${{ env.CHART_VERSION }}
           use-external-images: 'false'
           kubernetes-version: ${{ matrix.kubernetes_version }}
-          enable-image-volume-gate: 'true'
+          kind-feature-gates: 'ImageVolume'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository-owner: ${{ github.repository_owner }}
 
@@ -431,6 +431,133 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: imagevolume-preflight-logs-${{ matrix.kubernetes_version }}-${{ github.run_attempt }}
+          path: |
+            /tmp/cluster-logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # ImageVolume block check (negative path).
+  #
+  # The mirror image of imagevolume-preflight: a Kubernetes 1.33 cluster with
+  # the ImageVolume gate LEFT OFF (its default on 1.33). Here the operator's
+  # admission webhook must REJECT DocumentDB creation with an actionable
+  # ImageVolume error instead of letting pods hang. The composite action
+  # provisions the cluster + operator only (deploy-documentdb: false); the
+  # workflow then applies a DocumentDB and asserts the apply fails with an
+  # ImageVolume message. This proves the fail-fast guarantee end-to-end on a
+  # real cluster, complementing the webhook unit tests.
+  # ---------------------------------------------------------------------------
+  imagevolume-block:
+    name: ImageVolume block (k8s v1.33.7, gate off)
+    needs: [build]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      EXT_IMAGE_TAG: ${{ needs.build.outputs.ext_image_tag }}
+      CHART_VERSION: ${{ needs.build.outputs.chart_version || '0.1.0' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download platform images artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-platform-images
+          path: ./artifacts/build-platform-images
+
+      - name: Download helm chart artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-helm-chart-amd64
+          path: ./artifacts/build-helm-chart-amd64
+
+      - name: Setup test environment (operator only, no DocumentDB)
+        uses: ./.github/actions/setup-test-environment
+        with:
+          test-type: 'e2e'
+          architecture: 'amd64'
+          runner: 'ubuntu-22.04'
+          test-scenario-name: imagevolume-block
+          node-count: '1'
+          instances-per-node: '1'
+          cert-manager-namespace: ${{ env.CERT_MANAGER_NS }}
+          operator-namespace: ${{ env.OPERATOR_NS }}
+          db-namespace: ${{ env.DB_NS }}
+          db-cluster-name: ${{ env.DB_NAME }}
+          db-username: ${{ env.DB_USERNAME }}
+          db-password: ${{ env.DB_PASSWORD }}
+          db-port: ${{ env.DB_PORT }}
+          image-tag: ${{ env.IMAGE_TAG }}
+          documentdb-image-tag: ${{ env.EXT_IMAGE_TAG }}
+          chart-version: ${{ env.CHART_VERSION }}
+          use-external-images: 'false'
+          kubernetes-version: v1.33.7
+          deploy-documentdb: 'false'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository-owner: ${{ github.repository_owner }}
+
+      - name: Assert DocumentDB creation is blocked (ImageVolume unavailable)
+        shell: bash
+        run: |
+          echo "Negative test: with the ImageVolume gate off on k8s 1.33, the"
+          echo "operator's admission webhook must REJECT DocumentDB creation."
+
+          # The validating webhook runs its ImageVolume capability probe first
+          # and returns 403 Forbidden before any spec validation, so this apply
+          # is expected to FAIL with a message mentioning ImageVolume.
+          set +e
+          APPLY_OUTPUT="$(cat <<EOF | kubectl apply -f - 2>&1
+          apiVersion: documentdb.io/preview
+          kind: DocumentDB
+          metadata:
+            name: ${{ env.DB_NAME }}
+            namespace: ${{ env.DB_NS }}
+          spec:
+            nodeCount: 1
+            instancesPerNode: 1
+            resource:
+              storage:
+                pvcSize: 5Gi
+                storageClass: csi-hostpath-sc
+            exposeViaService:
+              serviceType: ClusterIP
+          EOF
+          )"
+          APPLY_RC=$?
+          set -e
+
+          echo "kubectl apply exit code: ${APPLY_RC}"
+          echo "kubectl apply output:"
+          echo "${APPLY_OUTPUT}"
+
+          if [ "${APPLY_RC}" -eq 0 ]; then
+            echo "❌ Expected DocumentDB creation to be rejected, but it was admitted."
+            kubectl delete documentdb ${{ env.DB_NAME }} -n ${{ env.DB_NS }} --ignore-not-found
+            exit 1
+          fi
+          if ! echo "${APPLY_OUTPUT}" | grep -qi "ImageVolume"; then
+            echo "❌ Rejected, but not for the expected ImageVolume reason."
+            exit 1
+          fi
+          echo "✓ DocumentDB creation was correctly blocked with an ImageVolume error."
+
+      - name: Collect cluster diagnostics
+        if: failure()
+        uses: ./.github/actions/collect-logs
+        with:
+          architecture: amd64
+          operator-namespace: ${{ env.OPERATOR_NS }}
+          db-namespace: ${{ env.DB_NS }}
+          db-name: ${{ env.DB_NAME }}
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagevolume-block-logs-${{ github.run_attempt }}
           path: |
             /tmp/cluster-logs/
           if-no-files-found: ignore
