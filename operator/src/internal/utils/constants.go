@@ -32,10 +32,6 @@ const (
 	DOCUMENTDB_EXTENSION_IMAGE_REPO = "ghcr.io/documentdb/documentdb-kubernetes-operator/documentdb"
 	GATEWAY_IMAGE_REPO              = "ghcr.io/documentdb/documentdb-kubernetes-operator/gateway"
 
-	// MinK8sMinorVersion is the minimum required Kubernetes minor version.
-	// The operator requires K8s 1.35+ for ImageVolume GA support.
-	MinK8sMinorVersion = 35
-
 	// DEFAULT_DOCUMENTDB_IMAGE is the extension image used in ImageVolume mode.
 	DEFAULT_DOCUMENTDB_IMAGE = DOCUMENTDB_EXTENSION_IMAGE_REPO + ":0.110.0"
 	// NOTE: Keep in sync with operator/cnpg-plugins/sidecar-injector/internal/config/config.go:applyDefaults()
