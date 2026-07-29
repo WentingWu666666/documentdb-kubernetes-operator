@@ -25,12 +25,7 @@ Before installing the DocumentDB Kubernetes Operator, ensure you have the follow
 | **cert-manager** | 1.19+ | TLS certificate management | [Install cert-manager](https://cert-manager.io/docs/installation/) |
 
 !!! warning "The ImageVolume feature and a containerd or CRI-O runtime are required"
-    The operator uses the [ImageVolume](https://kubernetes.io/docs/concepts/storage/volumes/#image) feature to mount the DocumentDB extension into PostgreSQL pods, so the feature **must be available on your cluster**. It is GA (on by default) in **Kubernetes 1.35+** — the recommended baseline. The cluster must use a **containerd** or **CRI-O** container runtime; Docker does not support ImageVolumes.
-
-    When you create a `DocumentDB`, the operator's admission webhook probes for ImageVolume support and **rejects the resource with an actionable error if the feature is unavailable**, so you find out immediately instead of waiting for pods that never become ready.
-
-!!! note "Advanced: running on Kubernetes 1.33 or 1.34"
-    ImageVolume is a beta feature that is **off by default** on Kubernetes 1.33 and 1.34. On a self-managed cluster you can still run the operator there by enabling the `ImageVolume` [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) on **both** the kube-apiserver and every kubelet, and ensuring the node's container runtime supports image volumes (**containerd ≥ 2.1** or **CRI-O ≥ 1.33**). Managed offerings (AKS/EKS/GKE) generally do not let you toggle apiserver/kubelet feature gates, so use 1.35+ there.
+    The operator mounts the DocumentDB extension into PostgreSQL pods via the [ImageVolume](https://kubernetes.io/docs/concepts/storage/volumes/#image) feature, so it **must be available on your cluster**, running on a **containerd** or **CRI-O** runtime (Docker is not supported). ImageVolume is GA (on by default) in **Kubernetes 1.35+**; on **1.33/1.34** it is beta and works only if you enable the `ImageVolume` feature gate on the apiserver and kubelets (self-managed clusters; containerd ≥ 2.1 or CRI-O ≥ 1.33). If the feature is unavailable, the operator's admission webhook rejects `DocumentDB` creation with an actionable error instead of leaving pods stuck.
 
 ### Optional components
 
