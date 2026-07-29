@@ -440,16 +440,19 @@ jobs:
   # ImageVolume block check (negative path).
   #
   # The mirror image of imagevolume-preflight: a Kubernetes 1.33 cluster with
-  # the ImageVolume gate LEFT OFF (its default on 1.33). Here the operator's
-  # admission webhook must REJECT DocumentDB creation with an actionable
-  # ImageVolume error instead of letting pods hang. The composite action
-  # provisions the cluster + operator only (deploy-documentdb: false); the
-  # workflow then applies a DocumentDB and asserts the apply fails with an
-  # ImageVolume message. This proves the fail-fast guarantee end-to-end on a
-  # real cluster, complementing the webhook unit tests.
+  # the ImageVolume gate EXPLICITLY DISABLED (kind-feature-gates:
+  # 'ImageVolume=false'). We force it off rather than relying on the version
+  # default because ImageVolume's real-world default in 1.33/1.34 is
+  # inconsistent across node images. Here the operator's admission webhook must
+  # REJECT DocumentDB creation with an actionable ImageVolume error instead of
+  # letting pods hang. The composite action provisions the cluster + operator
+  # only (deploy-documentdb: false); the workflow then applies a DocumentDB and
+  # asserts the apply fails with an ImageVolume message. This proves the
+  # fail-fast guarantee end-to-end on a real cluster, complementing the webhook
+  # unit tests.
   # ---------------------------------------------------------------------------
   imagevolume-block:
-    name: ImageVolume block (k8s v1.33.7, gate off)
+    name: ImageVolume block (k8s v1.33.7, gate disabled)
     needs: [build]
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-22.04
@@ -495,6 +498,7 @@ jobs:
           chart-version: ${{ env.CHART_VERSION }}
           use-external-images: 'false'
           kubernetes-version: v1.33.7
+          kind-feature-gates: 'ImageVolume=false'
           deploy-documentdb: 'false'
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository-owner: ${{ github.repository_owner }}
