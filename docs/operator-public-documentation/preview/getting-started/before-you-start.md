@@ -20,7 +20,7 @@ Before installing the DocumentDB Kubernetes Operator, ensure you have the follow
 | Component | Minimum Version | Purpose | Installation Guide |
 |-----------|-----------------|---------|-------------------|
 | **Kubernetes cluster** | 1.35+ (or 1.33/1.34 with the ImageVolume gate enabled) | Container orchestration platform | See [Cluster Options](#kubernetes-cluster-options) |
-| **kubectl** | 1.33+ | Kubernetes command-line tool | [Install kubectl](https://kubernetes.io/docs/tasks/tools/) |
+| **kubectl** | 1.34+ | Kubernetes command-line tool (supported within ±1 minor of the cluster; 1.34+ covers the 1.35 baseline) | [Install kubectl](https://kubernetes.io/docs/tasks/tools/) |
 | **Helm** | 3.x | Package manager for Kubernetes | [Install Helm](https://helm.sh/docs/intro/install/) |
 | **cert-manager** | 1.19+ | TLS certificate management | [Install cert-manager](https://cert-manager.io/docs/installation/) |
 

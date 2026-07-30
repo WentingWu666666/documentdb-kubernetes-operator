@@ -93,13 +93,13 @@ func (v *DocumentDBValidator) ensureImageVolumeSupported(ctx context.Context, na
 // The second return value reports whether the result is conclusive.
 func (v *DocumentDBValidator) probeImageVolume(ctx context.Context, namespace string) (supported bool, conclusive bool) {
 	if _, err := v.dryRunProbePod(ctx, namespace, baselineProbeVolume()); err != nil {
-		documentdbLog.Info("ImageVolume preflight inconclusive: baseline probe pod rejected", "error", err.Error())
+		documentdbLog.Info("ImageVolume preflight inconclusive: baseline probe pod rejected", "error", err)
 		return false, false
 	}
 
 	returned, err := v.dryRunProbePod(ctx, namespace, imageProbeVolume())
 	if err != nil {
-		documentdbLog.Info("ImageVolume preflight: image-volume probe pod rejected while baseline passed; feature unavailable", "error", err.Error())
+		documentdbLog.Info("ImageVolume preflight: image-volume probe pod rejected while baseline passed; feature unavailable", "error", err)
 		return false, true
 	}
 
