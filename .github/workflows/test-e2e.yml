@@ -46,6 +46,16 @@ on:
         required: false
         type: boolean
         default: false
+      old_documentdb_version:
+        description: 'Schema-upgrade spec: OLD DocumentDB version override (empty = built-in default)'
+        required: false
+        type: string
+        default: ''
+      new_documentdb_version:
+        description: 'Schema-upgrade spec: NEW DocumentDB version override (empty = built-in default)'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -192,11 +202,14 @@ jobs:
       E2E_UPGRADE_OLD_DOCUMENTDB_IMAGE: ${{ vars.E2E_UPGRADE_OLD_DOCUMENTDB_IMAGE || '' }}
       E2E_UPGRADE_NEW_DOCUMENTDB_IMAGE: ${{ vars.E2E_UPGRADE_NEW_DOCUMENTDB_IMAGE || '' }}
       # Schema-upgrade spec knobs (spec.documentDBVersion + spec.schemaVersion).
-      # Set explicitly to the released pair so the two-phase migration spec
-      # runs on every e2e PR without depending on repo `vars`. Bump these
-      # when validating a newer old->new pair.
-      E2E_UPGRADE_OLD_DOCUMENTDB_VERSION: '0.109.0'
-      E2E_UPGRADE_NEW_DOCUMENTDB_VERSION: '0.110.0'
+      # The released old->new pair is the built-in default in the spec
+      # (defaultOldDocumentDBVersion / defaultNewDocumentDBVersion in
+      # test/e2e/tests/upgrade/helpers_test.go), which is the single source of
+      # truth and is auto-bumped by release_documentdb_images.yml on each DB
+      # release. Leaving these empty lets that default apply; a workflow_dispatch
+      # input overrides it for a one-off manual run.
+      E2E_UPGRADE_OLD_DOCUMENTDB_VERSION: ${{ inputs.old_documentdb_version || '' }}
+      E2E_UPGRADE_NEW_DOCUMENTDB_VERSION: ${{ inputs.new_documentdb_version || '' }}
 
     steps:
       - name: Checkout repository

@@ -45,6 +45,12 @@ const (
 	// without depending on repo-level CI vars. Both images are published
 	// on the public GHCR documentdb/gateway repos, so documentDBVersion
 	// resolves to pullable tags in kind.
+	//
+	// This pair is the single source of truth for the CI default and is
+	// bumped automatically by .github/workflows/release_documentdb_images.yml
+	// on each DocumentDB release (old <- previous default, new <- released
+	// version). Do not duplicate it into workflow env; test-e2e.yml only
+	// passes an optional workflow_dispatch override.
 	defaultOldDocumentDBVersion = "0.109.0"
 	defaultNewDocumentDBVersion = "0.110.0"
 
