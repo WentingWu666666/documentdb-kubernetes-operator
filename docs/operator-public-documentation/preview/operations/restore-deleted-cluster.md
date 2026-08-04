@@ -48,14 +48,14 @@ The PV should be in `Released` or `Available` status.
 
 ### Step 2: Create a New DocumentDB Cluster with PV Recovery
 
-!!! warning "PV restore requires an explicit `documentDBVersion`"
-    Unlike a backup, a retained PV carries **no readable schema-version metadata**, so
-    the operator cannot verify version compatibility at admission time. You **must** set
-    `spec.documentDBVersion` (or `spec.image.documentDB`) explicitly, and it must be
-    **>= the schema version of the data on the PV** — ideally the version the original
-    cluster was running. A PV restore that omits an explicit version is rejected.
-    Restoring onto an older binary risks **data corruption** (see
-    [Backup and Restore → Version compatibility](backup-and-restore.md#version-compatibility)).
+!!! warning "Schema-version compatibility"
+    Set `documentDBVersion` to the schema version of the data on the PV **or newer** —
+    never older, which risks **data corruption**. Retained PVs carry a
+    `documentdb.io/schema-version` annotation; when present, admission rejects a
+    restore onto an older version. If the annotation is missing (e.g. a PV imported
+    from outside the operator), the version can't be verified and the restore is
+    allowed with a warning — set the right version yourself. See
+    [Version compatibility](backup-and-restore.md#version-compatibility).
 
 ```yaml title="restore-from-pv.yaml"
 apiVersion: documentdb.io/preview
@@ -66,8 +66,7 @@ metadata:
 spec:
   nodeCount: 1
   instancesPerNode: 1
-  # Required for PV restore. Set to a version >= the schema version of the data
-  # on the PV (ideally the version the original cluster was running).
+  # Set to the PV data's schema version or newer (see Version compatibility).
   documentDBVersion: "0.110.0"
   documentDbCredentialSecret: documentdb-credentials
   resource:
