@@ -194,8 +194,8 @@ How the rule is enforced and reported:
 | --- | --- |
 | `binary == schema` | Allowed. No schema change. |
 | `binary > schema` | Allowed. The schema stays at the backup version until you opt into an upgrade via `spec.schemaVersion` (see [Upgrades](upgrades.md)). |
-| `binary < schema` | **Rejected** at admission when the backup has a recorded schema version. |
-| schema version unknown | Allowed with an **admission warning** — compatibility could **not** be verified. This applies when the backup predates schema-version recording. For **PersistentVolume/volume-snapshot** restores (which carry no schema metadata), an explicit `documentDBVersion` (or `image.documentDB`) is **required** and the restore is otherwise allowed with a warning — verify the version manually. |
+| `binary < schema` | **Rejected** at admission when the schema version is known — from the backup's recorded schema version, or from a retained PV's `documentdb.io/schema-version` annotation. |
+| schema version unknown | Allowed with an **admission warning** — compatibility could **not** be verified. This applies when the backup predates schema-version recording. For **PersistentVolume/volume-snapshot** restores where the PV carries no schema-version annotation (e.g. imported from outside the operator), an explicit `documentDBVersion` (or `image.documentDB`) is **required** and the restore is otherwise allowed with a warning — verify the version manually. |
 
 To determine a backup's schema version when it is not recorded on the `Backup`,
 record the source cluster's `status.schemaVersion` **before** taking the backup
@@ -247,7 +247,7 @@ Once the status shows `Cluster in healthy state`, connect and verify your data. 
 - The backup must be in `completed` status.
 - The VolumeSnapshot referenced by the backup must still exist — if it was manually deleted, the backup cannot be used for recovery.
 - You cannot specify both `backup` and `persistentVolume` in the same recovery spec.
-- The restore binary version must be **>= the backup's schema version**. Restores from a `Backup` with a recorded schema version are enforced at admission; PV-based restores and backups without a recorded schema version are allowed with a warning only. See [Version compatibility](#version-compatibility).
+- The restore binary version must be **>= the backup's schema version**. Restores from a `Backup` with a recorded schema version — and PV restores where the PV carries a `documentdb.io/schema-version` annotation — are enforced at admission; backups or PVs without a known schema version are allowed with a warning only. See [Version compatibility](#version-compatibility).
 
 For additional recovery options (including PV-based recovery), see [Restore a Deleted DocumentDB Cluster](restore-deleted-cluster.md).
 
