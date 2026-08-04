@@ -166,6 +166,43 @@ List backups for your DocumentDB cluster and choose one in `completed` status:
 kubectl get backups -n <namespace>
 ```
 
+The `SchemaVersion` column shows the DocumentDB extension schema version the backup
+was taken at. Note this value — you need it to pick a compatible binary version for
+the restore (see [Version compatibility](#version-compatibility) below):
+
+```bash
+kubectl get backup my-backup -n <namespace> -o jsonpath='{.status.schemaVersion}'
+```
+
+### Version compatibility
+
+A restore is a **physical** recovery: the restored database — including the
+installed `documentdb` extension schema — comes back at the schema version that
+existed **when the backup was taken**. The restored cluster's binary version is
+chosen independently by the new cluster's `documentDBVersion` (or `image`).
+
+!!! danger "Restore onto a binary version >= the backup's schema version"
+    You must restore onto a DocumentDB binary whose version is **greater than or
+    equal to** the backup's schema version — ideally the **same** `documentDBVersion`
+    the backup was taken with. Restoring onto an **older** binary runs it against a
+    newer, irreversible schema and may cause **data corruption**: schema upgrades
+    (`ALTER EXTENSION UPDATE`) have no downgrade path.
+
+How the rule is enforced and reported:
+
+| Restore binary vs. backup schema | Behavior |
+| --- | --- |
+| `binary == schema` | Allowed. No schema change. |
+| `binary > schema` | Allowed. The schema stays at the backup version until you opt into an upgrade via `spec.schemaVersion` (see [Upgrades](upgrades.md)). |
+| `binary < schema` | **Rejected** at admission when the backup has a recorded schema version. |
+| schema version unknown | Allowed with an **admission warning** — compatibility could **not** be verified. This applies when the backup predates schema-version recording. For **PersistentVolume/volume-snapshot** restores (which carry no schema metadata), an explicit `documentDBVersion` (or `image.documentDB`) is **required** and the restore is otherwise allowed with a warning — verify the version manually. |
+
+To determine a backup's schema version when it is not recorded on the `Backup`,
+record the source cluster's `status.schemaVersion` **before** taking the backup
+(recommended operational practice), or restore into a cluster whose binary is `>=`
+the expected version and then read
+`kubectl get documentdb <name> -o jsonpath='{.status.schemaVersion}'`.
+
 ### Step 2: Create a New DocumentDB Cluster
 
 ```yaml title="restore.yaml"
@@ -177,6 +214,9 @@ metadata:
 spec:
   nodeCount: 1
   instancesPerNode: 1
+  # Set to a version >= the backup's schema version (ideally the version the
+  # backup was taken with). See "Version compatibility" above.
+  documentDBVersion: "0.110.0"
   resource:
     storage:
       pvcSize: 10Gi
@@ -207,6 +247,7 @@ Once the status shows `Cluster in healthy state`, connect and verify your data. 
 - The backup must be in `completed` status.
 - The VolumeSnapshot referenced by the backup must still exist — if it was manually deleted, the backup cannot be used for recovery.
 - You cannot specify both `backup` and `persistentVolume` in the same recovery spec.
+- The restore binary version must be **>= the backup's schema version**. Restores from a `Backup` with a recorded schema version are enforced at admission; PV-based restores and backups without a recorded schema version are allowed with a warning only. See [Version compatibility](#version-compatibility).
 
 For additional recovery options (including PV-based recovery), see [Restore a Deleted DocumentDB Cluster](restore-deleted-cluster.md).
 

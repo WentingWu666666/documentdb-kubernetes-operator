@@ -61,10 +61,16 @@ func (v *DocumentDBValidator) ValidateCreate(ctx context.Context, documentdb *db
 	}
 
 	allErrs := v.validate(documentdb)
+
+	// Restore-specific compatibility check. Runs only on create because bootstrap
+	// is immutable afterward. May both add errors (hard block) and warnings.
+	warnings, restoreErrs := v.validateRestoreSchemaCompatibility(ctx, documentdb)
+	allErrs = append(allErrs, restoreErrs...)
+
 	if len(allErrs) == 0 {
-		return nil, nil
+		return warnings, nil
 	}
-	return nil, apierrors.NewInvalid(
+	return warnings, apierrors.NewInvalid(
 		schema.GroupKind{Group: "documentdb.io", Kind: "DocumentDB"},
 		documentdb.Name, allErrs)
 }
@@ -216,6 +222,114 @@ func (v *DocumentDBValidator) validateImageRollback(newDB, oldDB *dbpreview.Docu
 		)}
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Restore validation (create-only)
+// ---------------------------------------------------------------------------
+
+// validateRestoreSchemaCompatibility validates that a restore's target binary
+// version is compatible with the schema version the source backup was taken at.
+//
+// A restore is a physical recovery: the restored catalog (including the
+// documentdb extension schema) comes back at backup-time schema version, while
+// the new cluster's binary version is chosen independently. Running an older
+// binary against a newer, irreversible schema risks data corruption, and the
+// rollback guard (validateImageRollback) cannot catch it because a fresh restore
+// has an empty status.
+//
+// Rules:
+//   - binary >= schema  → allowed (schema catch-up handled by the two-phase upgrade flow)
+//   - binary <  schema  → rejected
+//   - schema/binary version unknown → allowed with a warning
+//
+// Backup-CR restores read the schema version from Backup.Status.SchemaVersion.
+// PV/volume-snapshot restores carry no admission-readable schema metadata, so
+// they instead require an explicit binary version (spec.documentDBVersion or
+// spec.image.documentDB) and are otherwise allowed with a warning.
+func (v *DocumentDBValidator) validateRestoreSchemaCompatibility(ctx context.Context, newDB *dbpreview.DocumentDB) (admission.Warnings, field.ErrorList) {
+	if newDB.Spec.Bootstrap == nil || newDB.Spec.Bootstrap.Recovery == nil {
+		return nil, nil
+	}
+	recovery := newDB.Spec.Bootstrap.Recovery
+
+	// Non-backup restore (PV / volume snapshot): the schema version lives inside
+	// the restored data directory and cannot be read at admission time.
+	if recovery.Backup.Name == "" {
+		if recovery.PersistentVolume != nil && recovery.PersistentVolume.Name != "" {
+			// Require an explicit binary version so the restore is not silently
+			// pinned to the default image, which may be older than the restored
+			// schema and risk data corruption. We still cannot verify the exact
+			// number against the disk, so we also warn.
+			if newDB.Spec.DocumentDBVersion == "" && specImageDocumentDB(newDB) == "" {
+				return nil, field.ErrorList{field.Required(
+					field.NewPath("spec", "documentDBVersion"),
+					"restoring from a PersistentVolume requires an explicit spec.documentDBVersion "+
+						"(or spec.image.documentDB) that is >= the schema version of the restored data; "+
+						"the schema version cannot be verified at admission time for PV restores, so it must be set deliberately",
+				)}
+			}
+			return admission.Warnings{
+				"restoring from a PersistentVolume: schema-version compatibility cannot be verified at admission time; " +
+					"ensure the specified binary version is >= the schema version of the restored data to avoid data corruption",
+			}, nil
+		}
+		return nil, nil
+	}
+
+	backupName := recovery.Backup.Name
+	backup := &dbpreview.Backup{}
+	if err := v.Get(ctx, client.ObjectKey{Name: backupName, Namespace: newDB.Namespace}, backup); err != nil {
+		if apierrors.IsNotFound(err) {
+			return admission.Warnings{
+				fmt.Sprintf("backup %q not found in namespace %q: schema-version compatibility cannot be verified",
+					backupName, newDB.Namespace),
+			}, nil
+		}
+		// Transient/API error: don't hard-block the restore, but warn.
+		return admission.Warnings{
+			fmt.Sprintf("failed to read backup %q: schema-version compatibility cannot be verified: %v", backupName, err),
+		}, nil
+	}
+
+	backupSchemaVersion := backup.Status.SchemaVersion
+	if backupSchemaVersion == "" {
+		return admission.Warnings{
+			fmt.Sprintf("backup %q has no recorded schema version: schema-version compatibility cannot be verified; "+
+				"ensure the target binary version is >= the backup's schema version to avoid data corruption", backupName),
+		}, nil
+	}
+
+	binaryVersion := resolveBinaryVersion(newDB)
+	if binaryVersion == "" {
+		return admission.Warnings{
+			fmt.Sprintf("cannot determine the target binary version for restore from backup %q "+
+				"(set spec.documentDBVersion or spec.image.documentDB): schema-version compatibility (backup schema %s) cannot be verified",
+				backupName, backupSchemaVersion),
+		}, nil
+	}
+
+	binaryExtensionVersion := util.SemverToExtensionVersion(binaryVersion)
+	schemaExtensionVersion := util.SemverToExtensionVersion(backupSchemaVersion)
+
+	cmp, err := util.CompareExtensionVersions(binaryExtensionVersion, schemaExtensionVersion)
+	if err != nil {
+		return admission.Warnings{
+			fmt.Sprintf("cannot compare restore binary version %s with backup schema version %s: %v; compatibility not verified",
+				binaryVersion, backupSchemaVersion, err),
+		}, nil
+	}
+	if cmp < 0 {
+		return nil, field.ErrorList{field.Forbidden(
+			field.NewPath("spec", "bootstrap", "recovery", "backup"),
+			fmt.Sprintf(
+				"restore blocked: target binary version %s is older than the backup's schema version %s. "+
+					"Restoring onto an older binary runs it against a newer, irreversible schema and may cause data corruption. "+
+					"Set spec.documentDBVersion (or spec.image.documentDB) to a version >= %s.",
+				binaryVersion, backupSchemaVersion, backupSchemaVersion),
+		)}
+	}
+	return nil, nil
 }
 
 // validateImmutableFields rejects updates to fields that cannot be changed after creation.
