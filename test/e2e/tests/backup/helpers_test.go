@@ -91,10 +91,11 @@ func manifestsRoot() string {
 	return filepath.Join(filepath.Dir(thisFile), "..", "..", "manifests")
 }
 
-// createRecoveryDocumentDB renders a flat recovery_* template under
-// manifests/backup/ and applies the resulting DocumentDB CR.
-func createRecoveryDocumentDB(
-	ctx context.Context, c client.Client,
+// buildRecoveryDocumentDB renders a flat recovery_* template under
+// manifests/backup/ and returns the resulting DocumentDB CR *without*
+// creating it, so callers (e.g. admission-rejection specs) can mutate
+// the spec before calling Create themselves.
+func buildRecoveryDocumentDB(
 	ns, name, templateName string, extra map[string]string,
 ) *previewv1.DocumentDB {
 	vars := baseVars(name, ns, "")
@@ -112,6 +113,16 @@ func createRecoveryDocumentDB(
 	if dd.Name == "" {
 		dd.Name = name
 	}
+	return dd
+}
+
+// createRecoveryDocumentDB renders a flat recovery_* template under
+// manifests/backup/ and applies the resulting DocumentDB CR.
+func createRecoveryDocumentDB(
+	ctx context.Context, c client.Client,
+	ns, name, templateName string, extra map[string]string,
+) *previewv1.DocumentDB {
+	dd := buildRecoveryDocumentDB(ns, name, templateName, extra)
 	Expect(c.Create(ctx, dd)).To(Succeed(), "create recovery DocumentDB %s/%s", ns, name)
 	return dd
 }
