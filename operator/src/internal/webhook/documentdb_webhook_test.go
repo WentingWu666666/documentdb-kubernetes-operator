@@ -362,7 +362,8 @@ var _ = Describe("resolveEffectiveBinaryVersion helper", func() {
 
 	It("falls back to the default image version when neither image nor version is set", func() {
 		db := newTestDocumentDB("", "", "")
-		Expect(resolveEffectiveBinaryVersion(db)).To(Equal("0.110.0"))
+		defaultVersion := resolveBinaryVersion(newTestDocumentDB("", "", util.DEFAULT_DOCUMENTDB_IMAGE))
+		Expect(resolveEffectiveBinaryVersion(db)).To(Equal(defaultVersion))
 	})
 
 	It("prefers the DOCUMENTDB_VERSION env override over the default", func() {
@@ -709,9 +710,9 @@ var _ = Describe("restore schema compatibility validation", func() {
 
 	It("blocks restore when no version is set and the default binary is older than the backup schema", func() {
 		// With no spec.documentDBVersion/image, the controller applies the operator
-		// default (DEFAULT_DOCUMENTDB_IMAGE, 0.110.0). Restoring a 0.112.0 schema onto
-		// it would run an older binary against a newer schema, so admission blocks it.
-		backup := newBackupWithSchema("bk", "0.112.0")
+		// default. Restoring a newer schema onto it would run an older binary against
+		// a newer schema, so admission blocks it.
+		backup := newBackupWithSchema("bk", "999.0.0")
 		v := newValidatorWithObjects(backup)
 		db := newRestoreDocumentDB("restored", "", "bk")
 		warnings, errs := v.validateRestoreSchemaCompatibility(ctx, db)
