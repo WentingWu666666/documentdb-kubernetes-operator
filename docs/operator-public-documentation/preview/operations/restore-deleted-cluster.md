@@ -48,19 +48,14 @@ The PV should be in `Released` or `Available` status.
 
 ### Step 2: Create a New DocumentDB Cluster with PV Recovery
 
-!!! warning "PV restore and schema-version compatibility"
-    The operator stamps retained PVs with a `documentdb.io/schema-version` annotation
-    (recorded from the source cluster's schema version). When that annotation is present,
-    admission **verifies** it against the restore's binary version and **rejects** a restore
-    whose `documentDBVersion` (or `spec.image.documentDB`) is older than the PV's schema
-    version — restoring onto an older binary risks **data corruption** (see
-    [Backup and Restore → Version compatibility](backup-and-restore.md#version-compatibility)).
-
-    If the annotation is missing (for example, a PV imported from outside the operator, or
-    from a raw disk/snapshot), the schema version cannot be verified. In that case you **must**
-    set `spec.documentDBVersion` (or `spec.image.documentDB`) explicitly — ideally the version
-    the original cluster was running — and a PV restore that omits an explicit version is
-    rejected.
+!!! warning "Schema-version compatibility"
+    Set `documentDBVersion` to the schema version of the data on the PV **or newer** —
+    never older, which risks **data corruption**. Retained PVs carry a
+    `documentdb.io/schema-version` annotation; when present, admission rejects a
+    restore onto an older version. If the annotation is missing (e.g. a PV imported
+    from outside the operator), the version can't be verified and the restore is
+    allowed with a warning — set the right version yourself. See
+    [Version compatibility](backup-and-restore.md#version-compatibility).
 
 ```yaml title="restore-from-pv.yaml"
 apiVersion: documentdb.io/preview
@@ -71,8 +66,7 @@ metadata:
 spec:
   nodeCount: 1
   instancesPerNode: 1
-  # Required for PV restore. Set to a version >= the schema version of the data
-  # on the PV (ideally the version the original cluster was running).
+  # Set to the PV data's schema version or newer (see Version compatibility).
   documentDBVersion: "0.110.0"
   documentDbCredentialSecret: documentdb-credentials
   resource:
@@ -107,4 +101,3 @@ After confirming the recovery is successful, delete the source PV:
 ```bash
 kubectl delete pv pvc-abc123-def456-789
 ```
-
