@@ -188,8 +188,9 @@ corruption**.
 | schema version unknown | Allowed with a warning — verify the version yourself |
 
 The schema version is known from the `Backup`'s `status.schemaVersion` or a
-retained PV's `documentdb.io/schema-version` annotation. Older backups or PVs
-imported from outside the operator may not have it recorded.
+retained PV's `documentdb.io/schema-version` annotation. A PV imported from
+outside the operator (e.g. a raw disk or external snapshot) carries no annotation,
+so its schema version is unknown.
 
 ### Step 2: Create a New DocumentDB Cluster
 
