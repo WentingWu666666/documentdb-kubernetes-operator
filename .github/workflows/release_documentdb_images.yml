@@ -14,7 +14,7 @@ on:
       version:
         description: 'Database image release version (e.g., 0.111.0)'
         required: true
-        default: '0.110.0'
+        default: '0.113.0'
       update_defaults:
         description: 'Create PR to update default image versions in code'
         required: false
@@ -184,14 +184,16 @@ jobs:
 
       - name: Release summary
         run: |
-          echo "## DocumentDB Image Release Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Database Version**: \`${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Images Promoted**: documentdb, gateway" >> $GITHUB_STEP_SUMMARY
-          echo "- **Source Tag**: \`${{ inputs.candidate_version }}\` → \`${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## DocumentDB Image Release Summary"
+            echo ""
+            echo "- **Database Version**: \`${{ inputs.version }}\`"
+            echo "- **Images Promoted**: documentdb, gateway"
+            echo "- **Source Tag**: \`${{ inputs.candidate_version }}\` → \`${{ inputs.version }}\`"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
           if [[ "${{ steps.current.outputs.current_version }}" != "${{ inputs.version }}" ]]; then
-            echo "- **PR Created**: Updates default versions from \`${{ steps.current.outputs.current_version }}\` to \`${{ inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **PR Created**: Updates default versions from \`${{ steps.current.outputs.current_version }}\` to \`${{ inputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "- **No PR needed**: Version \`${{ inputs.version }}\` is already the default" >> $GITHUB_STEP_SUMMARY
+            echo "- **No PR needed**: Version \`${{ inputs.version }}\` is already the default" >> "$GITHUB_STEP_SUMMARY"
           fi
