@@ -137,6 +137,7 @@ All configuration is via environment variables.
 | `LONGHAUL_BACKUP_RETENTION_DAYS` | No | `1` | Retention window applied to child backups; also used to derive the retention-leak deadline. |
 | `LONGHAUL_BACKUP_VERIFY_INTERVAL` | No | `5m` | How often the backup verifier samples the `ScheduledBackup` and its children. Lower it for short bounded runs (e.g. the smoke gate uses `30s`) so the periodic loop fires several times within the window. |
 | `LONGHAUL_RESET_DATA` | No | `false` | If `true`, drop the workload collection on startup. Off by default so a Deployment pod restart preserves durability history. |
+| `LONGHAUL_RETAIN_PER_WRITER` | No | `2000000` | Retention window: most-recent verified documents kept per writer before the pruner deletes older ones, bounding disk usage. `0` disables pruning (unbounded growth). |
 
 ### Data Protection (ScheduledBackup + retention)
 

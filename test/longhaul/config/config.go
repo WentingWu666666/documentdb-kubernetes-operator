@@ -40,7 +40,16 @@ const (
 
 	// Operational toggles.
 	EnvResetData = "LONGHAUL_RESET_DATA"
+
+	// Data retention. Bounds the workload collection so an unbounded write
+	// test does not eventually exhaust the PVC.
+	EnvRetainPerWriter = "LONGHAUL_RETAIN_PER_WRITER"
 )
+
+// DefaultRetainPerWriter is the default number of most-recent documents kept
+// per writer when pruning is enabled. At ~10 writes/sec/writer this retains
+// roughly 55 hours of history per writer while bounding steady-state disk use.
+const DefaultRetainPerWriter = 2_000_000
 
 // Config holds all configuration for a long haul test run.
 type Config struct {
@@ -99,6 +108,11 @@ type Config struct {
 	// Default false so that pod restarts preserve durability history; opt in
 	// for fresh local/dev iterations.
 	ResetData bool
+
+	// RetainPerWriter is the number of most-recent documents kept per writer.
+	// Older, already-verified documents are pruned to bound disk usage. Zero
+	// disables pruning (unbounded growth — the pre-retention behavior).
+	RetainPerWriter int64
 }
 
 // DefaultConfig returns a Config with safe defaults for local development.
@@ -120,6 +134,8 @@ func DefaultConfig() Config {
 		BackupSchedule:       "0 */6 * * *",
 		BackupRetentionDays:  1,
 		BackupVerifyInterval: 5 * time.Minute,
+
+		RetainPerWriter: DefaultRetainPerWriter,
 	}
 }
 
@@ -232,6 +248,14 @@ func LoadFromEnv() (Config, error) {
 		cfg.ResetData = v == "true" || v == "1" || v == "yes"
 	}
 
+	if v := os.Getenv(EnvRetainPerWriter); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvRetainPerWriter, v, err)
+		}
+		cfg.RetainPerWriter = n
+	}
+
 	return cfg, nil
 }
 
@@ -274,6 +298,9 @@ func (c *Config) Validate() error {
 		if c.BackupVerifyInterval <= 0 {
 			return fmt.Errorf("backup verify interval must be positive, got %s", c.BackupVerifyInterval)
 		}
+	}
+	if c.RetainPerWriter < 0 {
+		return fmt.Errorf("retain per writer must not be negative, got %d", c.RetainPerWriter)
 	}
 	return nil
 }

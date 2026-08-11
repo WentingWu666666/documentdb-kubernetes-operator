@@ -23,6 +23,7 @@ var _ = Describe("Config", func() {
 			Expect(cfg.SteadyStateWait).To(Equal(60 * time.Second))
 			Expect(cfg.MinInstances).To(Equal(1))
 			Expect(cfg.MaxInstances).To(Equal(3))
+			Expect(cfg.RetainPerWriter).To(Equal(int64(DefaultRetainPerWriter)))
 		})
 	})
 
@@ -37,6 +38,7 @@ var _ = Describe("Config", func() {
 				EnvMinInstances, EnvMaxInstances, EnvReportInterval,
 				EnvBackupEnabled, EnvBackupSchedule, EnvBackupRetentionDays,
 				EnvBackupVerifyInterval,
+				EnvResetData, EnvRetainPerWriter,
 			} {
 				GinkgoT().Setenv(k, "")
 			}
@@ -133,6 +135,26 @@ var _ = Describe("Config", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(EnvBackupVerifyInterval))
 		})
+
+		It("parses RetainPerWriter from env", func() {
+			GinkgoT().Setenv(EnvRetainPerWriter, "500000")
+			cfg, err := LoadFromEnv()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.RetainPerWriter).To(Equal(int64(500_000)))
+		})
+
+		It("parses RetainPerWriter=0 to disable pruning", func() {
+			GinkgoT().Setenv(EnvRetainPerWriter, "0")
+			cfg, err := LoadFromEnv()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cfg.RetainPerWriter).To(BeZero())
+		})
+
+		It("returns error for invalid RetainPerWriter", func() {
+			GinkgoT().Setenv(EnvRetainPerWriter, "not-a-number")
+			_, err := LoadFromEnv()
+			Expect(err).To(MatchError(ContainSubstring(EnvRetainPerWriter)))
+		})
 	})
 
 	Describe("Validate", func() {
@@ -219,6 +241,13 @@ var _ = Describe("Config", func() {
 			cfg.BackupSchedule = ""
 			cfg.BackupRetentionDays = 0
 			Expect(cfg.Validate()).To(Succeed())
+		})
+
+		It("fails when RetainPerWriter is negative", func() {
+			cfg := DefaultConfig()
+			cfg.ClusterName = "test"
+			cfg.RetainPerWriter = -1
+			Expect(cfg.Validate()).To(MatchError(ContainSubstring("retain per writer")))
 		})
 	})
 
