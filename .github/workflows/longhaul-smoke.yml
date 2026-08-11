@@ -53,12 +53,12 @@
 #   deploy-csi-driver.sh: external-snapshotter + a default csi-hostpath
 #   VolumeSnapshotClass), so a single-instance cluster can complete snapshot
 #   backups — exactly as the e2e scheduled-backup test proves. The smoke run
-#   therefore sets a fast backup schedule (every minute) and asserts the driver
-#   actually scheduled AND completed at least one backup (with no retention leak
-#   or completion stall). Because the backup verify loop ticks every 5m, the
-#   bounded window is >= 6m so that tick fires once against several
-#   already-completed backups; a broken backup path (no completion) fails the
-#   PR rather than passing silently as a no-op.
+#   sets a per-minute backup schedule and a 30s verify interval (vs the 5m
+#   default, via LONGHAUL_BACKUP_VERIFY_INTERVAL) so the verifier's periodic
+#   loop fires many times within the window and reliably observes a
+#   scheduled+completed backup. It then asserts scheduled AND completed >= 1
+#   (with no retention leak or completion stall), so a broken backup path fails
+#   the PR rather than passing silently as a no-op.
 
 name: Long-Haul Smoke Gate
 
@@ -74,7 +74,7 @@ on:
   workflow_dispatch:
     inputs:
       max_duration:
-        description: "Bounded driver run length (Go duration). Keep >= 6m so the 5m backup verify tick fires."
+        description: "Bounded driver run length (Go duration). Keep >= 6m so at least one per-minute backup is scheduled and completed within the window."
         required: false
         default: "6m"
 
@@ -219,9 +219,11 @@ jobs:
           #  - MIN==MAX instances: disable disruptive scale ops (fast + stable)
           #  - short cadences so the verifier gets several cycles in the window
           #  - BACKUP_*: exercise the data-protection verifier for real — a
-          #    per-minute schedule so backups are scheduled + completed well
-          #    before the backup verifier's 5m tick observes them. Retention is
-          #    1 day (>> the run) so no leak fires; we assert scheduled+completed.
+          #    per-minute schedule so at least one backup is scheduled and
+          #    completed within the bounded window, plus a 30s verify interval
+          #    (vs the 5m default) so the verifier's periodic loop ticks many
+          #    times and reliably observes the completion. Retention is 1 day
+          #    (>> the run) so no leak fires; we assert scheduled+completed.
           PATCH=$(jq -nc \
             --arg dur "${MAX_DURATION}" \
             '{data: {
@@ -236,7 +238,8 @@ jobs:
               LONGHAUL_MAX_INSTANCES: "1",
               LONGHAUL_BACKUP_ENABLED: "true",
               LONGHAUL_BACKUP_SCHEDULE: "*/1 * * * *",
-              LONGHAUL_BACKUP_RETENTION_DAYS: "1"
+              LONGHAUL_BACKUP_RETENTION_DAYS: "1",
+              LONGHAUL_BACKUP_VERIFY_INTERVAL: "30s"
             }}')
           kubectl patch configmap longhaul-test-config -n "${DB_NS}" --type merge -p "${PATCH}"
 

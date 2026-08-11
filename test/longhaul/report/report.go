@@ -103,6 +103,7 @@ func GenerateMarkdown(s Summary) string {
 	fmt.Fprintf(&b, "| Backups Scheduled | %d |\n", s.Backup.Scheduled)
 	fmt.Fprintf(&b, "| Backups Completed | %d |\n", s.Backup.Completed)
 	fmt.Fprintf(&b, "| Backups Failed | %d |\n", s.Backup.Failed)
+	fmt.Fprintf(&b, "| Backups Skipped | %d |\n", s.Backup.Skipped)
 	fmt.Fprintf(&b, "| Live Backup Count | %d |\n", s.Backup.LastChildCount)
 	fmt.Fprintf(&b, "| Retention Leaks | %d |\n", s.Backup.RetentionLeaks)
 	fmt.Fprintf(&b, "| Max Scheduled Without Completion | %d |\n", s.Backup.MaxScheduledWithoutCompletion)

@@ -25,8 +25,9 @@ const (
 	// may run before we warn that scheduling appears stalled.
 	livenessGrace = 5 * time.Minute
 
-	// verifyInterval is how often the verification loop runs.
-	verifyInterval = 5 * time.Minute
+	// defaultVerifyInterval is the verification cadence when Config leaves it
+	// unset. Short bounded runs override it via Config.VerifyInterval.
+	defaultVerifyInterval = 5 * time.Minute
 )
 
 // Client is the subset of the cluster API the backup verifier needs.
@@ -42,6 +43,10 @@ type Config struct {
 	ScheduledBackupName string
 	Schedule            string
 	RetentionDays       int
+
+	// VerifyInterval is how often Run samples backup state; zero means
+	// defaultVerifyInterval.
+	VerifyInterval time.Duration
 }
 
 // Verifier bootstraps a ScheduledBackup and continuously checks that the
@@ -58,6 +63,7 @@ type Verifier struct {
 	// these maps stay bounded over a multi-day run.
 	seenCompleted  map[string]struct{}
 	seenFailed     map[string]struct{}
+	seenSkipped    map[string]struct{}
 	leakFlagged    map[string]struct{}
 	lastScheduled  time.Time
 	stallWarnedFor time.Time
@@ -79,6 +85,7 @@ func NewVerifier(client Client, j *journal.Journal, metrics *Metrics, cfg Config
 		cfg:           cfg,
 		seenCompleted: make(map[string]struct{}),
 		seenFailed:    make(map[string]struct{}),
+		seenSkipped:   make(map[string]struct{}),
 		leakFlagged:   make(map[string]struct{}),
 	}
 }
@@ -96,12 +103,18 @@ func (v *Verifier) Bootstrap(ctx context.Context) error {
 	return nil
 }
 
-// Run starts the verification loop. It blocks until ctx is cancelled.
+// Run starts the verification loop and blocks until ctx is cancelled. The
+// cadence is Config.VerifyInterval (defaultVerifyInterval when unset).
 func (v *Verifier) Run(ctx context.Context) {
 	v.journal.Info("backup", "backup verifier started")
 	defer v.journal.Info("backup", "backup verifier stopped")
 
-	ticker := time.NewTicker(verifyInterval)
+	interval := v.cfg.VerifyInterval
+	if interval <= 0 {
+		interval = defaultVerifyInterval
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -191,6 +204,7 @@ func (v *Verifier) checkChildBackups(ctx context.Context, now time.Time) {
 	// and be double-counted.
 	pruneAbsent(v.seenCompleted, present)
 	pruneAbsent(v.seenFailed, present)
+	pruneAbsent(v.seenSkipped, present)
 	pruneAbsent(v.leakFlagged, present)
 }
 
@@ -203,8 +217,8 @@ func pruneAbsent(seen, present map[string]struct{}) {
 	}
 }
 
-// recordPhase counts new completed / terminally-failed child backups,
-// deduplicated by name.
+// recordPhase counts new completed / skipped / terminally-failed child
+// backups, deduplicated by name.
 func (v *Verifier) recordPhase(b *previewv1.Backup) {
 	switch {
 	case isCompleted(b):
@@ -216,6 +230,16 @@ func (v *Verifier) recordPhase(b *previewv1.Backup) {
 			// completed backups.
 			v.scheduledSinceCompleted = 0
 			v.journal.Info("backup", fmt.Sprintf("backup %q completed", b.Name))
+		}
+	case isSkipped(b):
+		if _, seen := v.seenSkipped[b.Name]; !seen {
+			v.seenSkipped[b.Name] = struct{}{}
+			v.metrics.Skipped.Add(1)
+			// Skipped is an intentional no-op (e.g. non-primary/standby), not a
+			// broken completion path — reset the stall gap like a completion so
+			// consecutive skips during failover don't trip a false FAIL.
+			v.scheduledSinceCompleted = 0
+			v.journal.Info("backup", fmt.Sprintf("backup %q skipped: %s", b.Name, b.Status.Message))
 		}
 	case isTerminalFailure(b):
 		if _, seen := v.seenFailed[b.Name]; !seen {
@@ -262,6 +286,13 @@ func (v *Verifier) checkRetentionLeak(b *previewv1.Backup, now time.Time) {
 // isCompleted reports whether a Backup reached the "completed" phase.
 func isCompleted(b *previewv1.Backup) bool {
 	return b != nil && b.Status.Phase == cnpgv1.BackupPhaseCompleted
+}
+
+// isSkipped reports whether a Backup reached the "skipped" phase — a terminal
+// no-op the operator emits for a non-primary/standby. recordPhase treats it
+// like a completion for the stall gap; it is not counted as a failure.
+func isSkipped(b *previewv1.Backup) bool {
+	return b != nil && b.Status.Phase == previewv1.BackupPhaseSkipped
 }
 
 // isTerminalFailure reports whether a Backup reached a genuine failure

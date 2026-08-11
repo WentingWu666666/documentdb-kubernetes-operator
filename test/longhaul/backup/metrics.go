@@ -56,6 +56,11 @@ type Metrics struct {
 	// phase (deduplicated by name).
 	Failed atomic.Int64
 
+	// Skipped is the number of child backups observed in the "skipped" phase
+	// (deduplicated by name). Skipped is an intentional no-op, not a failure,
+	// and resets the completion-stall gap like a completion. Observational.
+	Skipped atomic.Int64
+
 	// RetentionLeaks counts completed backups still present past their
 	// retention window (stoppedAt + retentionDays*24h). Non-zero => FAIL.
 	RetentionLeaks atomic.Int64
@@ -101,6 +106,7 @@ type MetricsSnapshot struct {
 	Scheduled                     int64
 	Completed                     int64
 	Failed                        int64
+	Skipped                       int64
 	RetentionLeaks                int64
 	MaxScheduledWithoutCompletion int64
 	LastChildCount                int64
@@ -117,6 +123,7 @@ func (m *Metrics) Snapshot() MetricsSnapshot {
 		Scheduled:                     m.Scheduled.Load(),
 		Completed:                     m.Completed.Load(),
 		Failed:                        m.Failed.Load(),
+		Skipped:                       m.Skipped.Load(),
 		RetentionLeaks:                m.RetentionLeaks.Load(),
 		MaxScheduledWithoutCompletion: m.MaxScheduledWithoutCompletion.Load(),
 		LastChildCount:                m.LastChildCount.Load(),

@@ -36,6 +36,7 @@ var _ = Describe("Config", func() {
 				EnvOpCooldown, EnvRecoveryTimeout, EnvSteadyStateWait,
 				EnvMinInstances, EnvMaxInstances, EnvReportInterval,
 				EnvBackupEnabled, EnvBackupSchedule, EnvBackupRetentionDays,
+				EnvBackupVerifyInterval,
 			} {
 				GinkgoT().Setenv(k, "")
 			}
@@ -45,6 +46,7 @@ var _ = Describe("Config", func() {
 			cfg, err := LoadFromEnv()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cfg.MaxDuration).To(Equal(30 * time.Minute))
+			Expect(cfg.BackupVerifyInterval).To(Equal(5 * time.Minute))
 		})
 
 		It("parses MaxDuration from env", func() {
@@ -109,11 +111,13 @@ var _ = Describe("Config", func() {
 			GinkgoT().Setenv(EnvBackupEnabled, "true")
 			GinkgoT().Setenv(EnvBackupSchedule, "0 */6 * * *")
 			GinkgoT().Setenv(EnvBackupRetentionDays, "7")
+			GinkgoT().Setenv(EnvBackupVerifyInterval, "30s")
 			cfg, err := LoadFromEnv()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cfg.BackupEnabled).To(BeTrue())
 			Expect(cfg.BackupSchedule).To(Equal("0 */6 * * *"))
 			Expect(cfg.BackupRetentionDays).To(Equal(7))
+			Expect(cfg.BackupVerifyInterval).To(Equal(30 * time.Second))
 		})
 
 		It("returns error for invalid BackupRetentionDays", func() {
@@ -121,6 +125,13 @@ var _ = Describe("Config", func() {
 			_, err := LoadFromEnv()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring(EnvBackupRetentionDays))
+		})
+
+		It("returns error for invalid BackupVerifyInterval", func() {
+			GinkgoT().Setenv(EnvBackupVerifyInterval, "not-a-duration")
+			_, err := LoadFromEnv()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(EnvBackupVerifyInterval))
 		})
 	})
 
@@ -192,6 +203,13 @@ var _ = Describe("Config", func() {
 			cfg.ClusterName = "test"
 			cfg.BackupRetentionDays = 0
 			Expect(cfg.Validate()).To(MatchError(ContainSubstring("backup retention days")))
+		})
+
+		It("fails when backup verify interval is not positive", func() {
+			cfg := DefaultConfig()
+			cfg.ClusterName = "test"
+			cfg.BackupVerifyInterval = 0
+			Expect(cfg.Validate()).To(MatchError(ContainSubstring("backup verify interval")))
 		})
 
 		It("skips backup validation when backups disabled", func() {

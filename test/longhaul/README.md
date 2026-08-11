@@ -135,6 +135,7 @@ All configuration is via environment variables.
 | `LONGHAUL_BACKUP_ENABLED` | No | `true` | Enable the ScheduledBackup + retention verifier. |
 | `LONGHAUL_BACKUP_SCHEDULE` | No | `0 */6 * * *` | Cron schedule for the canary `ScheduledBackup`. |
 | `LONGHAUL_BACKUP_RETENTION_DAYS` | No | `1` | Retention window applied to child backups; also used to derive the retention-leak deadline. |
+| `LONGHAUL_BACKUP_VERIFY_INTERVAL` | No | `5m` | How often the backup verifier samples the `ScheduledBackup` and its children. Lower it for short bounded runs (e.g. the smoke gate uses `30s`) so the periodic loop fires several times within the window. |
 | `LONGHAUL_RESET_DATA` | No | `false` | If `true`, drop the workload collection on startup. Off by default so a Deployment pod restart preserves durability history. |
 
 ### Data Protection (ScheduledBackup + retention)
@@ -156,8 +157,10 @@ things unit and e2e tests cannot:
   no-op (e.g. the operator declines to back up a non-primary/standby) and is
   **not** counted as a failure. If backups keep being scheduled but stop
   completing for 3 consecutive schedules (a dead completion path — every backup
-  failing or hanging), the run is a **FAIL**. A single completed backup resets
-  this gap, so transient chaos-induced failures are tolerated.
+  failing or hanging), the run is a **FAIL**. A completed **or** skipped backup
+  resets this gap, so transient chaos-induced failures and normal standby /
+  failover intervals (where several consecutive schedules are skipped) are
+  tolerated.
 - **Retention leak** — no completed backup outlives its retention window
   (`stoppedAt + spec.retentionDays*24h` + grace). The window is taken from each
   backup's **own** `spec.retentionDays` (stamped at creation), so the check

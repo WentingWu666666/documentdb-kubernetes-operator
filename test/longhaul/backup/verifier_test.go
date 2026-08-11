@@ -116,7 +116,7 @@ var _ = Describe("Verifier.checkOnce", func() {
 		Expect(m.Snapshot().Scheduled).To(Equal(int64(2)))
 	})
 
-	It("counts completed and failed child backups once each", func() {
+	It("counts completed, skipped and failed child backups once each", func() {
 		stopped := now.Add(-30 * time.Minute)
 		fc := &fakeBackupClient{
 			sb: &previewv1.ScheduledBackup{},
@@ -133,7 +133,8 @@ var _ = Describe("Verifier.checkOnce", func() {
 
 		snap := m.Snapshot()
 		Expect(snap.Completed).To(Equal(int64(1)))
-		Expect(snap.Failed).To(Equal(int64(1))) // skipped is not a failure
+		Expect(snap.Failed).To(Equal(int64(1)))  // skipped is not a failure
+		Expect(snap.Skipped).To(Equal(int64(1))) // skipped counted separately
 		Expect(snap.LastChildCount).To(Equal(int64(3)))
 		Expect(snap.RetentionLeaks).To(BeZero())
 	})
@@ -360,6 +361,84 @@ var _ = Describe("Verifier completion-stall oracle", func() {
 
 		Expect(v.scheduledSinceCompleted).To(BeZero())
 		Expect(m.Snapshot().HasCompletionStall()).To(BeFalse())
+	})
+
+	It("does not flag a stall when a standby cluster skips every scheduled backup", func() {
+		fc := &fakeBackupClient{sb: &previewv1.ScheduledBackup{}}
+		v, m := newTestVerifier(fc)
+
+		// A standby cluster skips every backup. Well past the threshold to
+		// prove skips never accumulate a stall gap the way failures do.
+		for i := 1; i <= completionStallThreshold+2; i++ {
+			t := now.Add(time.Duration(i) * time.Hour)
+			fc.sb.Status.LastScheduledTime = &metav1.Time{Time: t}
+			fc.children = []previewv1.Backup{mkBackup(fmt.Sprintf("s%d", i), previewv1.BackupPhaseSkipped, time.Time{})}
+			v.checkOnce(context.Background(), t)
+		}
+
+		snap := m.Snapshot()
+		Expect(snap.Completed).To(BeZero())
+		Expect(snap.Failed).To(BeZero())
+		Expect(snap.Skipped).To(Equal(int64(completionStallThreshold + 2)))
+		Expect(snap.MaxScheduledWithoutCompletion).To(BeZero())
+		Expect(snap.HasCompletionStall()).To(BeFalse())
+	})
+
+	It("resets the running gap once a skip is observed", func() {
+		fc := &fakeBackupClient{sb: &previewv1.ScheduledBackup{}}
+		v, m := newTestVerifier(fc)
+
+		// Two schedules fail (gap climbs to 2, still under threshold)...
+		for i := 1; i <= 2; i++ {
+			t := now.Add(time.Duration(i) * time.Hour)
+			fc.sb.Status.LastScheduledTime = &metav1.Time{Time: t}
+			fc.children = []previewv1.Backup{mkBackup(fmt.Sprintf("f%d", i), cnpgv1.BackupPhaseFailed, time.Time{})}
+			v.checkOnce(context.Background(), t)
+		}
+		Expect(m.Snapshot().MaxScheduledWithoutCompletion).To(Equal(int64(2)))
+
+		// ...then a failover makes the cluster a standby and the next backup
+		// is skipped, which resets the running gap just like a completion.
+		t := now.Add(3 * time.Hour)
+		fc.sb.Status.LastScheduledTime = &metav1.Time{Time: t}
+		fc.children = []previewv1.Backup{mkBackup("s1", previewv1.BackupPhaseSkipped, time.Time{})}
+		v.checkOnce(context.Background(), t)
+
+		Expect(v.scheduledSinceCompleted).To(BeZero())
+		Expect(m.Snapshot().Skipped).To(Equal(int64(1)))
+		Expect(m.Snapshot().HasCompletionStall()).To(BeFalse())
+	})
+})
+
+var _ = Describe("Verifier Run loop", func() {
+	It("observes a scheduled+completed backup through the periodic loop", func() {
+		scheduledAt := time.Now()
+		fc := &fakeBackupClient{
+			sb: &previewv1.ScheduledBackup{
+				Status: previewv1.ScheduledBackupStatus{
+					LastScheduledTime: &metav1.Time{Time: scheduledAt},
+				},
+			},
+			children: []previewv1.Backup{mkBackup("b1", cnpgv1.BackupPhaseCompleted, scheduledAt)},
+		}
+		// Short interval → the loop ticks many times in-test, the mechanism the
+		// smoke gate uses to observe completions through the real periodic path.
+		m := NewMetrics()
+		v := NewVerifier(fc, journal.New(), m, Config{
+			ScheduledBackupName: "cluster-longhaul",
+			Schedule:            "*/1 * * * *",
+			RetentionDays:       1,
+			VerifyInterval:      5 * time.Millisecond,
+		})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go v.Run(ctx)
+
+		// Fast ticks observe schedule + completion without waiting the default.
+		Eventually(func() int64 { return m.Snapshot().Completed }).
+			Should(Equal(int64(1)))
+		Expect(m.Snapshot().Scheduled).To(Equal(int64(1)))
 	})
 })
 
