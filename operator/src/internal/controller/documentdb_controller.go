@@ -769,6 +769,46 @@ func parseExtensionVersionsFromOutput(output string) (defaultVersion, installedV
 	return defaultVersion, installedVersion, true
 }
 
+// updatePathSentinelYes / updatePathSentinelNo are the tokens the preflight
+// query emits so the result can be parsed out of psql's aligned table output
+// without depending on column layout.
+const (
+	updatePathSentinelYes = "HAS_UPDATE_PATH"
+	updatePathSentinelNo  = "NO_UPDATE_PATH"
+)
+
+// extensionUpdatePathExists reports whether PostgreSQL can resolve an
+// ALTER EXTENSION update path for the documentdb extension from source to
+// target. Both versions are in pg_available_extensions format (e.g.
+// "0.109-0"). It queries pg_extension_update_paths, which exposes the same
+// version graph ALTER EXTENSION UPDATE walks internally: a row exists for a
+// resolvable (source, target) pair with a non-NULL path, and the path is NULL
+// when no chain of update scripts connects them.
+//
+// The query returns a unique sentinel token rather than the raw path so the
+// answer survives psql's aligned output formatting.
+func (r *DocumentDBReconciler) extensionUpdatePathExists(
+	ctx context.Context,
+	cluster *cnpgv1.Cluster,
+	source, target string,
+) (bool, error) {
+	// A no-op update (source == target) has no path row but is trivially safe.
+	if source == target {
+		return true, nil
+	}
+
+	query := fmt.Sprintf(
+		"SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_extension_update_paths('documentdb') "+
+			"WHERE source = '%s' AND target = '%s' AND path IS NOT NULL) THEN '%s' ELSE '%s' END",
+		source, target, updatePathSentinelYes, updatePathSentinelNo)
+
+	output, err := r.SQLExecutor(ctx, cluster, query)
+	if err != nil {
+		return false, fmt.Errorf("query pg_extension_update_paths: %w", err)
+	}
+	return strings.Contains(output, updatePathSentinelYes), nil
+}
+
 // handleExtensionUpgrade handles the ALTER EXTENSION lifecycle after images have been synced
 // by SyncCnpgCluster. It:
 // 1. Updates DocumentDB status with the current images from the CNPG cluster
@@ -863,6 +903,35 @@ func (r *DocumentDBReconciler) handleExtensionUpgrade(ctx context.Context, curre
 	schemaTarget, updateSQL := r.determineSchemaTarget(ctx, documentdb, defaultVersion, installedVersion)
 	if schemaTarget == "" {
 		// Two-phase mode or validation failure — do not run ALTER EXTENSION
+		return nil
+	}
+
+	// Preflight: confirm PostgreSQL can resolve an update-script path from the
+	// installed schema to the target before attempting ALTER EXTENSION. The
+	// documentdb extension ships minors frequently, so a user may jump more
+	// than one minor in a single bump; that only works if the extension
+	// packages the intermediate documentdb--A--B.sql scripts so PostgreSQL can
+	// chain them. When the chain is broken, ALTER EXTENSION UPDATE fails at
+	// execution time with a raw "no update path" error every reconcile. Detect
+	// it here and surface an actionable event instead, leaving the schema and
+	// data untouched.
+	pathExists, err := r.extensionUpdatePathExists(ctx, currentCluster, installedVersion, schemaTarget)
+	if err != nil {
+		return fmt.Errorf("failed to check extension update path from %s to %s: %w",
+			installedVersion, schemaTarget, err)
+	}
+	if !pathExists {
+		msg := fmt.Sprintf(
+			"No supported schema upgrade path from %s to %s. The documentdb extension does not "+
+				"ship the update scripts needed to bridge this gap in one step. Upgrade to an "+
+				"intermediate version first, or report a missing migration script for this release. "+
+				"ALTER EXTENSION UPDATE was skipped; the schema and data are unchanged.",
+			util.ExtensionVersionToSemver(installedVersion),
+			util.ExtensionVersionToSemver(schemaTarget))
+		logger.Info(msg)
+		if r.Recorder != nil {
+			r.Recorder.Event(documentdb, corev1.EventTypeWarning, "SchemaUpgradePathMissing", msg)
+		}
 		return nil
 	}
 

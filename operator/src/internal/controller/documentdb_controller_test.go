@@ -838,11 +838,15 @@ var _ = Describe("DocumentDB Controller", func() {
 				Recorder: recorder,
 				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
 					sqlCalls = append(sqlCalls, sql)
-					if len(sqlCalls) == 1 {
-						// First call: version check — installed 0.109-0, default 0.110-0
+					if strings.Contains(sql, "pg_available_extensions") {
+						// Version check — installed 0.109-0, default 0.110-0
 						return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
 					}
-					// Second call: ALTER EXTENSION
+					if strings.Contains(sql, "pg_extension_update_paths") {
+						// Preflight — a valid update path exists
+						return "HAS_UPDATE_PATH", nil
+					}
+					// ALTER EXTENSION
 					return "ALTER EXTENSION", nil
 				},
 			}
@@ -850,15 +854,98 @@ var _ = Describe("DocumentDB Controller", func() {
 			err := reconciler.handleExtensionUpgrade(ctx, cluster, documentdb)
 			Expect(err).ToNot(HaveOccurred())
 
-			// Verify both SQL calls were made
-			Expect(sqlCalls).To(HaveLen(2))
+			// Verify version check, update-path preflight, and ALTER were called
+			Expect(sqlCalls).To(HaveLen(3))
 			Expect(sqlCalls[0]).To(ContainSubstring("pg_available_extensions"))
-			Expect(sqlCalls[1]).To(Equal("ALTER EXTENSION documentdb UPDATE"))
+			Expect(sqlCalls[1]).To(ContainSubstring("pg_extension_update_paths"))
+			Expect(sqlCalls[2]).To(Equal("ALTER EXTENSION documentdb UPDATE"))
 
 			// Status should reflect the upgraded version (default version as semver)
 			updatedDB := &dbpreview.DocumentDB{}
 			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
 			Expect(updatedDB.Status.SchemaVersion).To(Equal("0.110.0"))
+		})
+
+		It("should skip ALTER EXTENSION and emit an event when no update path exists", func() {
+			cluster := &cnpgv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: clusterNamespace,
+				},
+				Spec: cnpgv1.ClusterSpec{
+					PostgresConfiguration: cnpgv1.PostgresConfiguration{
+						Extensions: []cnpgv1.ExtensionConfiguration{
+							{
+								Name: "documentdb",
+								ImageVolumeSource: corev1.ImageVolumeSource{
+									Reference: "documentdb/documentdb:v1.0.0",
+								},
+							},
+						},
+					},
+				},
+				Status: cnpgv1.ClusterStatus{
+					CurrentPrimary: "test-cluster-1",
+					InstancesStatus: map[cnpgv1.PodStatus][]string{
+						cnpgv1.PodHealthy: {"test-cluster-1"},
+					},
+				},
+			}
+
+			documentdb := &dbpreview.DocumentDB{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-documentdb",
+					Namespace: clusterNamespace,
+				},
+				Spec: dbpreview.DocumentDBSpec{
+					SchemaVersion: "auto",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(cluster, documentdb).
+				WithStatusSubresource(&dbpreview.DocumentDB{}).
+				Build()
+
+			sqlCalls := []string{}
+			reconciler := &DocumentDBReconciler{
+				Client:   fakeClient,
+				Scheme:   scheme,
+				Recorder: recorder,
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
+					sqlCalls = append(sqlCalls, sql)
+					if strings.Contains(sql, "pg_available_extensions") {
+						// Version check — installed 0.109-0, default 0.110-0
+						return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
+					}
+					if strings.Contains(sql, "pg_extension_update_paths") {
+						// Preflight — no update path bridges installed → target
+						return "NO_UPDATE_PATH", nil
+					}
+					// ALTER EXTENSION must not be reached
+					return "ALTER EXTENSION", nil
+				},
+			}
+
+			err := reconciler.handleExtensionUpgrade(ctx, cluster, documentdb)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Only version check and preflight ran — ALTER EXTENSION was skipped
+			Expect(sqlCalls).To(HaveLen(2))
+			Expect(sqlCalls[0]).To(ContainSubstring("pg_available_extensions"))
+			Expect(sqlCalls[1]).To(ContainSubstring("pg_extension_update_paths"))
+
+			// A Warning event should surface the missing upgrade path
+			Expect(recorder.Events).To(HaveLen(1))
+			event := <-recorder.Events
+			Expect(event).To(ContainSubstring("SchemaUpgradePathMissing"))
+
+			// Schema version must stay at the installed version (no premature
+			// bump to the target since the migration was skipped)
+			updatedDB := &dbpreview.DocumentDB{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: "test-documentdb", Namespace: clusterNamespace}, updatedDB)).To(Succeed())
+			Expect(updatedDB.Status.SchemaVersion).ToNot(Equal("0.110.0"))
 		})
 
 		It("should return error when ALTER EXTENSION fails", func() {
@@ -903,16 +990,18 @@ var _ = Describe("DocumentDB Controller", func() {
 				WithStatusSubresource(&dbpreview.DocumentDB{}).
 				Build()
 
-			callCount := 0
 			reconciler := &DocumentDBReconciler{
 				Client:   fakeClient,
 				Scheme:   scheme,
 				Recorder: recorder,
 				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
-					callCount++
-					if callCount == 1 {
+					if strings.Contains(sql, "pg_available_extensions") {
 						// Version check: upgrade needed
 						return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
+					}
+					if strings.Contains(sql, "pg_extension_update_paths") {
+						// Preflight — a valid update path exists, so ALTER is attempted
+						return "HAS_UPDATE_PATH", nil
 					}
 					// ALTER EXTENSION fails
 					return "", fmt.Errorf("permission denied")
@@ -1212,9 +1301,12 @@ var _ = Describe("DocumentDB Controller", func() {
 				Recorder: recorder,
 				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
 					sqlCalls = append(sqlCalls, sql)
-					if len(sqlCalls) == 1 {
+					if strings.Contains(sql, "pg_available_extensions") {
 						// default > installed → triggers ALTER EXTENSION
 						return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
+					}
+					if strings.Contains(sql, "pg_extension_update_paths") {
+						return "HAS_UPDATE_PATH", nil
 					}
 					return "ALTER EXTENSION", nil
 				},
@@ -1223,7 +1315,66 @@ var _ = Describe("DocumentDB Controller", func() {
 			err := reconciler.handleExtensionUpgrade(ctx, cluster, documentdb)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to update DocumentDB status after schema upgrade"))
-			Expect(sqlCalls).To(HaveLen(2))
+			Expect(sqlCalls).To(HaveLen(3))
+		})
+	})
+
+	Describe("extensionUpdatePathExists", func() {
+		It("returns true without querying when source equals target", func() {
+			called := false
+			reconciler := &DocumentDBReconciler{
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, _ string) (string, error) {
+					called = true
+					return "", nil
+				},
+			}
+
+			exists, err := reconciler.extensionUpdatePathExists(ctx, &cnpgv1.Cluster{}, "0.110-0", "0.110-0")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(exists).To(BeTrue())
+			Expect(called).To(BeFalse())
+		})
+
+		It("returns true when the preflight query reports a path", func() {
+			var gotSQL string
+			reconciler := &DocumentDBReconciler{
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
+					gotSQL = sql
+					return "  case  \n--------\n HAS_UPDATE_PATH\n", nil
+				},
+			}
+
+			exists, err := reconciler.extensionUpdatePathExists(ctx, &cnpgv1.Cluster{}, "0.109-0", "0.110-0")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(exists).To(BeTrue())
+			Expect(gotSQL).To(ContainSubstring("pg_extension_update_paths"))
+			Expect(gotSQL).To(ContainSubstring("source = '0.109-0'"))
+			Expect(gotSQL).To(ContainSubstring("target = '0.110-0'"))
+		})
+
+		It("returns false when the preflight query reports no path", func() {
+			reconciler := &DocumentDBReconciler{
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, _ string) (string, error) {
+					return "  case  \n--------\n NO_UPDATE_PATH\n", nil
+				},
+			}
+
+			exists, err := reconciler.extensionUpdatePathExists(ctx, &cnpgv1.Cluster{}, "0.109-0", "0.130-0")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(exists).To(BeFalse())
+		})
+
+		It("propagates SQL execution errors", func() {
+			reconciler := &DocumentDBReconciler{
+				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, _ string) (string, error) {
+					return "", fmt.Errorf("connection refused")
+				},
+			}
+
+			exists, err := reconciler.extensionUpdatePathExists(ctx, &cnpgv1.Cluster{}, "0.109-0", "0.110-0")
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("query pg_extension_update_paths"))
+			Expect(exists).To(BeFalse())
 		})
 	})
 
@@ -1347,8 +1498,11 @@ var _ = Describe("DocumentDB Controller", func() {
 				Recorder: recorder,
 				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
 					sqlCalls = append(sqlCalls, sql)
-					if len(sqlCalls) == 1 {
+					if strings.Contains(sql, "pg_available_extensions") {
 						return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
+					}
+					if strings.Contains(sql, "pg_extension_update_paths") {
+						return "HAS_UPDATE_PATH", nil
 					}
 					return "ALTER EXTENSION", nil
 				},
@@ -1358,9 +1512,10 @@ var _ = Describe("DocumentDB Controller", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Both version-check and ALTER EXTENSION should have been called
-			Expect(sqlCalls).To(HaveLen(2))
+			Expect(sqlCalls).To(HaveLen(3))
 			Expect(sqlCalls[0]).To(ContainSubstring("pg_available_extensions"))
-			Expect(sqlCalls[1]).To(Equal("ALTER EXTENSION documentdb UPDATE"))
+			Expect(sqlCalls[1]).To(ContainSubstring("pg_extension_update_paths"))
+			Expect(sqlCalls[2]).To(Equal("ALTER EXTENSION documentdb UPDATE"))
 
 			// Status should reflect the upgraded version
 			updatedDB := &dbpreview.DocumentDB{}
@@ -1418,9 +1573,12 @@ var _ = Describe("DocumentDB Controller", func() {
 				Recorder: recorder,
 				SQLExecutor: func(_ context.Context, _ *cnpgv1.Cluster, sql string) (string, error) {
 					sqlCalls = append(sqlCalls, sql)
-					if len(sqlCalls) == 1 {
+					if strings.Contains(sql, "pg_available_extensions") {
 						// Binary is 0.110-0, installed is 0.109-0
 						return " default_version | installed_version \n-----------------+-------------------\n 0.110-0         | 0.109-0           \n", nil
+					}
+					if strings.Contains(sql, "pg_extension_update_paths") {
+						return "HAS_UPDATE_PATH", nil
 					}
 					return "ALTER EXTENSION", nil
 				},
@@ -1430,9 +1588,10 @@ var _ = Describe("DocumentDB Controller", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Should run ALTER EXTENSION UPDATE TO specific version
-			Expect(sqlCalls).To(HaveLen(2))
+			Expect(sqlCalls).To(HaveLen(3))
 			Expect(sqlCalls[0]).To(ContainSubstring("pg_available_extensions"))
-			Expect(sqlCalls[1]).To(Equal("ALTER EXTENSION documentdb UPDATE TO '0.110-0'"))
+			Expect(sqlCalls[1]).To(ContainSubstring("pg_extension_update_paths"))
+			Expect(sqlCalls[2]).To(Equal("ALTER EXTENSION documentdb UPDATE TO '0.110-0'"))
 
 			// Status should reflect the explicit version
 			updatedDB := &dbpreview.DocumentDB{}
