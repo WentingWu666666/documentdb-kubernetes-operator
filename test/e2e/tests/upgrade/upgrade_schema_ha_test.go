@@ -121,9 +121,9 @@ var _ = Describe("DocumentDB upgrade — schema (multi-instance HA)",
 				timeouts.PollInterval(timeouts.DocumentDBReady),
 			).Should(Equal(oldVersion), "initial schema version should be %s", oldVersion)
 
-			By("confirming a replica also reports the old schema version before upgrade")
+			By("confirming all replicas also report the old schema version before upgrade")
 			Eventually(func() (string, error) {
-				return replicaInstalledSchemaVersion(ctx, env, ns, ddName)
+				return replicaInstalledSchemaVersion(ctx, env, ns, ddName, instances-1)
 			}, timeouts.For(timeouts.DocumentDBReady), timeouts.PollInterval(timeouts.DocumentDBReady),
 			).Should(Equal(oldVersion), "replica should start at schema %s", oldVersion)
 
@@ -182,12 +182,13 @@ var _ = Describe("DocumentDB upgrade — schema (multi-instance HA)",
 				timeouts.PollInterval(timeouts.DocumentDBUpgrade),
 			).Should(Succeed(), "DocumentDB not Ready after schema migration to %s", newVersion)
 
-			By("verifying the migrated schema propagated to a replica via streaming replication")
+			By("verifying the migrated schema propagated to all replicas via streaming replication")
 			// The operator only runs ALTER EXTENSION on the primary and only
 			// reads status.schemaVersion from the primary. Confirm the catalog
-			// change reached a replica by reading pg_extension.extversion there.
+			// change reached every replica by reading pg_extension.extversion
+			// on each of them.
 			Eventually(func() (string, error) {
-				return replicaInstalledSchemaVersion(ctx, env, ns, ddName)
+				return replicaInstalledSchemaVersion(ctx, env, ns, ddName, instances-1)
 			}, timeouts.For(timeouts.DocumentDBUpgrade), timeouts.PollInterval(timeouts.DocumentDBUpgrade),
 			).Should(Equal(newVersion), "replica schema did not converge to %s after finalize", newVersion)
 

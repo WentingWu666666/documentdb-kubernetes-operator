@@ -190,26 +190,33 @@ func createCredentialSecret(ctx context.Context, c client.Client, ns string) {
 	}
 }
 
-// replicaInstalledSchemaVersion execs psql on a replica pod of the CNPG
-// cluster backing the DocumentDB and returns the installed documentdb
-// extension version, normalized to semver (e.g. "0.110.0").
+// replicaInstalledSchemaVersion execs psql on every replica pod of the
+// CNPG cluster backing the DocumentDB and returns their agreed installed
+// documentdb extension version, normalized to semver (e.g. "0.110.0").
 //
 // This exists because the operator computes status.schemaVersion by
 // querying the PRIMARY only (see executeSQLCommand in the controller),
 // so the CR status does not independently prove that a schema migration
 // propagated to replicas. The extension schema (an ALTER EXTENSION
 // catalog change) reaches replicas via WAL streaming replication; this
-// helper reads pg_extension.extversion directly on a replica to confirm
-// that convergence.
+// helper reads pg_extension.extversion directly on each replica to
+// confirm that convergence across all of them.
 //
 // The extension reports its version in "Major.Minor-Patch" form (e.g.
 // "0.110-0"); replacing the final "-" with "." yields the semver used
 // throughout the upgrade specs. clusterName is the CNPG cluster name,
 // which for a single-cluster DocumentDB equals the DocumentDB name.
+//
+// wantReplicas is the number of replica pods the caller expects (instances
+// minus the primary). The helper errors until exactly that many replicas
+// are present AND they all report the same installed version, so a lagging
+// or not-yet-rolled replica keeps an Eventually polling rather than passing
+// on the first replica alone.
 func replicaInstalledSchemaVersion(
 	ctx context.Context,
 	env *environment.TestingEnvironment,
 	ns, clusterName string,
+	wantReplicas int,
 ) (string, error) {
 	var pods corev1.PodList
 	if err := env.Client.List(ctx, &pods,
@@ -221,21 +228,47 @@ func replicaInstalledSchemaVersion(
 	); err != nil {
 		return "", fmt.Errorf("list replica pods for cluster %s/%s: %w", ns, clusterName, err)
 	}
-	if len(pods.Items) == 0 {
-		return "", fmt.Errorf("no replica pods found for cluster %s/%s", ns, clusterName)
+	if len(pods.Items) != wantReplicas {
+		return "", fmt.Errorf("expected %d replica pods for cluster %s/%s, found %d",
+			wantReplicas, ns, clusterName, len(pods.Items))
 	}
 
+	var agreed string
+	for i := range pods.Items {
+		pod := pods.Items[i]
+		v, err := podInstalledSchemaVersion(ctx, env, pod)
+		if err != nil {
+			return "", err
+		}
+		switch {
+		case agreed == "":
+			agreed = v
+		case agreed != v:
+			return "", fmt.Errorf("replicas disagree on installed schema version: %s vs %s (%s)",
+				agreed, v, pod.Name)
+		}
+	}
+	return agreed, nil
+}
+
+// podInstalledSchemaVersion execs psql on a single pod and returns the
+// installed documentdb extension version normalized to semver.
+func podInstalledSchemaVersion(
+	ctx context.Context,
+	env *environment.TestingEnvironment,
+	pod corev1.Pod,
+) (string, error) {
 	timeout := time.Minute
-	stdout, stderr, err := env.EventuallyExecCommand(ctx, pods.Items[0], "postgres", &timeout,
+	stdout, stderr, err := env.EventuallyExecCommand(ctx, pod, "postgres", &timeout,
 		"psql", "-U", "postgres", "-d", "postgres", "-tAc",
 		"SELECT extversion FROM pg_extension WHERE extname='documentdb'")
 	if err != nil {
-		return "", fmt.Errorf("exec psql on replica %s: %w (stderr: %s)", pods.Items[0].Name, err, stderr)
+		return "", fmt.Errorf("exec psql on pod %s: %w (stderr: %s)", pod.Name, err, stderr)
 	}
 
 	raw := strings.TrimSpace(stdout)
 	if raw == "" {
-		return "", fmt.Errorf("documentdb extension not installed on replica %s", pods.Items[0].Name)
+		return "", fmt.Errorf("documentdb extension not installed on pod %s", pod.Name)
 	}
 	// "0.110-0" -> "0.110.0"; a value already in semver form is unchanged.
 	if i := strings.LastIndex(raw, "-"); i >= 0 {
