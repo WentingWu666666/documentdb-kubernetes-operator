@@ -2,14 +2,17 @@ package upgrade
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:revive
 
+	"github.com/cloudnative-pg/cloudnative-pg/tests/utils/environment"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -185,4 +188,58 @@ func createCredentialSecret(ctx context.Context, c client.Client, ns string) {
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		Fail("create credential secret " + ns + "/" + credentialSecretName + ": " + err.Error())
 	}
+}
+
+// replicaInstalledSchemaVersion execs psql on a replica pod of the CNPG
+// cluster backing the DocumentDB and returns the installed documentdb
+// extension version, normalized to semver (e.g. "0.110.0").
+//
+// This exists because the operator computes status.schemaVersion by
+// querying the PRIMARY only (see executeSQLCommand in the controller),
+// so the CR status does not independently prove that a schema migration
+// propagated to replicas. The extension schema (an ALTER EXTENSION
+// catalog change) reaches replicas via WAL streaming replication; this
+// helper reads pg_extension.extversion directly on a replica to confirm
+// that convergence.
+//
+// The extension reports its version in "Major.Minor-Patch" form (e.g.
+// "0.110-0"); replacing the final "-" with "." yields the semver used
+// throughout the upgrade specs. clusterName is the CNPG cluster name,
+// which for a single-cluster DocumentDB equals the DocumentDB name.
+func replicaInstalledSchemaVersion(
+	ctx context.Context,
+	env *environment.TestingEnvironment,
+	ns, clusterName string,
+) (string, error) {
+	var pods corev1.PodList
+	if err := env.Client.List(ctx, &pods,
+		client.InNamespace(ns),
+		client.MatchingLabels{
+			"cnpg.io/cluster":      clusterName,
+			"cnpg.io/instanceRole": "replica",
+		},
+	); err != nil {
+		return "", fmt.Errorf("list replica pods for cluster %s/%s: %w", ns, clusterName, err)
+	}
+	if len(pods.Items) == 0 {
+		return "", fmt.Errorf("no replica pods found for cluster %s/%s", ns, clusterName)
+	}
+
+	timeout := time.Minute
+	stdout, stderr, err := env.EventuallyExecCommand(ctx, pods.Items[0], "postgres", &timeout,
+		"psql", "-U", "postgres", "-d", "postgres", "-tAc",
+		"SELECT extversion FROM pg_extension WHERE extname='documentdb'")
+	if err != nil {
+		return "", fmt.Errorf("exec psql on replica %s: %w (stderr: %s)", pods.Items[0].Name, err, stderr)
+	}
+
+	raw := strings.TrimSpace(stdout)
+	if raw == "" {
+		return "", fmt.Errorf("documentdb extension not installed on replica %s", pods.Items[0].Name)
+	}
+	// "0.110-0" -> "0.110.0"; a value already in semver form is unchanged.
+	if i := strings.LastIndex(raw, "-"); i >= 0 {
+		raw = raw[:i] + "." + raw[i+1:]
+	}
+	return raw, nil
 }
