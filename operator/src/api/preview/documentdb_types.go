@@ -167,7 +167,14 @@ type ImageSpec struct {
 	// adds the DocumentDB extension via an ImageVolume mount), and must
 	// use trixie (Debian 13) base to match the extension's GLIBC
 	// requirements.
-	// +kubebuilder:default="ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie"
+	//
+	// Pinned to an immutable, digest-addressed PostgreSQL 18.4 build rather
+	// than the floating "18-minimal-trixie" tag. On 2026-08-13 that floating
+	// tag rolled from 18.4 to 18.6, and the 18.6 build broke the gateway's
+	// SCRAM-SHA-256 handshake (surfaced to clients as a generic InternalError),
+	// turning the E2E suite deterministically red. Pinning by digest keeps CI
+	// reproducible; bump this deliberately once a newer build is validated.
+	// +kubebuilder:default="ghcr.io/cloudnative-pg/postgresql:18.4-202608030910-minimal-trixie@sha256:229ab83c0639d294042ca747745fb214db690ade64d5d59131a135825b994391"
 	// +optional
 	Postgres string `json:"postgres,omitempty"`
 }
