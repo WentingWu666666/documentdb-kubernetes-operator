@@ -168,18 +168,12 @@ type ImageSpec struct {
 	// use trixie (Debian 13) base to match the extension's GLIBC
 	// requirements.
 	//
-	// Pinned to an immutable, digest-addressed PostgreSQL 18.4 build rather
-	// than the floating "18-minimal-trixie" tag. On 2026-08-13 that floating
-	// tag rolled from 18.4 to 18.6, and the shipped DocumentDB 0.113.0
-	// extension segfaults on 18.6: the PostgreSQL backend crashes with
-	// signal 11 inside documentdb_api.insert and, with restart_after_crash
-	// off, the whole instance goes down. Clients see only the downstream
-	// symptom (usually a generic Mongo InternalError). This is an
-	// extension-vs-PG-18.6 ABI incompatibility, reproduced on both CNPG and
-	// vanilla-Debian 18.6, so it is neither a CNPG image nor a gateway/SCRAM
-	// issue. Pinning by digest keeps CI reproducible and holds PostgreSQL at
-	// 18.4 until a DocumentDB release built ABI-clean for PG 18 ships; revert
-	// to the floating tag then.
+	// Pinned to an immutable digest instead of the floating
+	// "18-minimal-trixie" tag, which rolled 18.4 -> 18.6 on 2026-08-13 and
+	// crashed the DocumentDB 0.113.0 extension (segfault in
+	// documentdb_api.insert on PG 18.6 — an extension/PG-18.6 ABI
+	// mismatch, not a CNPG or gateway issue). Holds PG at 18.4 until a
+	// DocumentDB release built ABI-clean for PG 18 ships; revert then.
 	// +kubebuilder:default="ghcr.io/cloudnative-pg/postgresql:18.4-202608030910-minimal-trixie@sha256:229ab83c0639d294042ca747745fb214db690ade64d5d59131a135825b994391"
 	// +optional
 	Postgres string `json:"postgres,omitempty"`
