@@ -229,7 +229,7 @@ var _ = Describe("DocumentDB upgrade — schema",
 				"seeded document count changed across schema migration")
 		})
 
-		It("keeps serving on the current version and recovers when patched to an unpullable version", func() {
+		It("does not advance the schema and recovers when patched to an unpullable version", func() {
 			env := e2e.SuiteEnv()
 			Expect(env).NotTo(BeNil(), "SuiteEnv must be initialized by SetupSuite")
 			Expect(ctx).NotTo(BeNil(), "BeforeEach must have populated the spec context")
@@ -241,6 +241,15 @@ var _ = Describe("DocumentDB upgrade — schema",
 			// webhook admits the patch — a version below the installed schema
 			// would instead be rejected at admission (a different guard). The
 			// bogus tag has no published image, so its pods can never pull.
+			//
+			// This shared cluster is single-instance (INSTANCES=1), so a bad
+			// image forces CNPG to recreate the sole pod and the gateway is
+			// briefly unavailable during the failed pull — we therefore do NOT
+			// assert continuous serving here (that HA guarantee is covered by
+			// upgrade_schema_ha_test.go). What we assert instead is the
+			// operator's safety contract: the installed schema must not advance
+			// while the target binary can't start, and the cluster must fully
+			// recover with data intact once the version is rolled back.
 			const bogusVersion = "0.999.0"
 
 			schemaVersion := schemaVersionGetter(ctx, c, key)
@@ -265,15 +274,6 @@ var _ = Describe("DocumentDB upgrade — schema",
 				30*time.Second, 5*time.Second,
 			).Should(Equal(newVersion),
 				"schema must not advance past %s when the target image is unpullable", newVersion)
-
-			By("verifying seeded data is still readable despite the failed image pull")
-			handle, err := e2emongo.NewFromDocumentDB(ctx, env, ns, ddName)
-			Expect(err).NotTo(HaveOccurred(), "connect to DocumentDB gateway during failed upgrade")
-			n, err := sharedmongo.Count(ctx, handle.Client(), dbName, collName, bson.M{})
-			Expect(err).NotTo(HaveOccurred(), "count %s.%s during failed upgrade", dbName, collName)
-			Expect(n).To(Equal(int64(seed.SmallDatasetSize)),
-				"seeded document count changed while the upgrade was failing")
-			Expect(handle.Close(ctx)).To(Succeed())
 
 			By("rolling the version back to the valid new version and recovering")
 			fresh2, err := shareddb.Get(ctx, c, key)
