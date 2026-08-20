@@ -78,6 +78,11 @@ var _ = Describe("DocumentDB upgrade — schema",
 		// unpullable-version recovery check. Both run against the same
 		// DocumentDB so we don't pay for a second cluster.
 		BeforeAll(func() {
+			// Gate the expensive shared setup at the suite level *before* any
+			// cluster work: BeforeAll runs ahead of BeforeEach, so without this
+			// a sub-High run (e.g. a local run without label filtering) would
+			// pay the full cluster creation here and then skip every It.
+			e2e.SkipUnlessLevel(e2e.High)
 			skipUnlessUpgradeEnabled()
 			oldVersion = envOr(envOldDocumentDBVersion, defaultOldDocumentDBVersion)
 			newVersion = envOr(envNewDocumentDBVersion, defaultNewDocumentDBVersion)
