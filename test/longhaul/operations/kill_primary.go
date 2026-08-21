@@ -17,17 +17,19 @@ import (
 // steady state within the recovery budget. The continuous workload verifier
 // independently catches any data loss caused by the failover.
 type KillPrimaryPod struct {
-	client    monitor.ClusterClient
-	healthMon *monitor.HealthMonitor
-	recovery  time.Duration
+	client              monitor.ClusterClient
+	healthMon           SteadyStateGate
+	recovery            time.Duration
+	primaryPollInterval time.Duration
 }
 
 // NewKillPrimaryPod creates a KillPrimaryPod operation.
-func NewKillPrimaryPod(client monitor.ClusterClient, health *monitor.HealthMonitor, recovery time.Duration) *KillPrimaryPod {
+func NewKillPrimaryPod(client monitor.ClusterClient, health SteadyStateGate, recovery time.Duration) *KillPrimaryPod {
 	return &KillPrimaryPod{
-		client:    client,
-		healthMon: health,
-		recovery:  recovery,
+		client:              client,
+		healthMon:           health,
+		recovery:            recovery,
+		primaryPollInterval: time.Second,
 	}
 }
 
@@ -62,14 +64,63 @@ func (k *KillPrimaryPod) Execute(ctx context.Context) error {
 	if k.healthMon == nil {
 		return fmt.Errorf("kill-primary-pod: health monitor is nil")
 	}
-	if err := k.client.DeletePod(ctx, primary); err != nil {
+
+	recoveryCtx, cancel := context.WithTimeout(ctx, k.recovery)
+	defer cancel()
+
+	if err := k.client.DeletePod(recoveryCtx, primary); err != nil {
 		return fmt.Errorf("delete primary pod %s: %w", primary, err)
 	}
 
-	// Wait for CNPG to elect a new primary and the cluster to settle.
-	recoveryCtx, cancel := context.WithTimeout(ctx, k.recovery)
-	defer cancel()
-	return k.healthMon.WaitForSteadyState(recoveryCtx)
+	if err := k.waitForPrimaryChange(recoveryCtx, primary); err != nil {
+		return err
+	}
+
+	// A changed primary proves CNPG promoted a standby rather than merely
+	// recreating the deleted pod and reporting the old primary again.
+	if err := k.healthMon.WaitForSteadyState(recoveryCtx); err != nil {
+		return fmt.Errorf("wait for steady-state recovery: %w", err)
+	}
+
+	current, err := k.client.GetPrimaryInstance(recoveryCtx)
+	if err != nil {
+		return fmt.Errorf("verify primary after steady-state recovery: %w", err)
+	}
+	if current == "" || current == primary {
+		return fmt.Errorf("verify primary after steady-state recovery: expected a non-empty primary different from %q, got %q",
+			primary, current)
+	}
+	return nil
+}
+
+func (k *KillPrimaryPod) waitForPrimaryChange(ctx context.Context, original string) error {
+	ticker := time.NewTicker(k.primaryPollInterval)
+	defer ticker.Stop()
+
+	lastObserved := original
+	var lastErr error
+	for {
+		current, err := k.client.GetPrimaryInstance(ctx)
+		if err == nil {
+			lastObserved = current
+			if current != "" && current != original {
+				return nil
+			}
+		} else {
+			lastErr = err
+		}
+
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return fmt.Errorf("primary did not change from %q before recovery timeout (last read error: %v): %w",
+					original, lastErr, ctx.Err())
+			}
+			return fmt.Errorf("primary did not change from %q before recovery timeout (last observed %q): %w",
+				original, lastObserved, ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 // OutagePolicy bounds the write outage of an automatic failover. Killing the

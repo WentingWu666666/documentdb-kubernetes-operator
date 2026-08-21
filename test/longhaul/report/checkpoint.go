@@ -8,7 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
+
+	"github.com/documentdb/documentdb-operator/test/longhaul/operations"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -21,8 +24,9 @@ const (
 	ConfigMapName = "longhaul-report"
 )
 
-// SummaryFunc is called to generate the current test summary.
-type SummaryFunc func() Summary
+// SummaryFunc is called to generate the current test summary. final is true
+// only for the terminal emit, when incomplete sequence execution must fail.
+type SummaryFunc func(final bool) Summary
 
 // CheckpointReporter periodically generates and persists reports.
 type CheckpointReporter struct {
@@ -30,6 +34,10 @@ type CheckpointReporter struct {
 	namespace   string
 	interval    time.Duration
 	summaryFunc SummaryFunc
+
+	emitMu       sync.Mutex
+	finalEmitted bool
+	finalSummary Summary
 }
 
 // NewCheckpointReporter creates a periodic reporter that writes to stdout and ConfigMap.
@@ -67,18 +75,31 @@ func (r *CheckpointReporter) Run(ctx context.Context) {
 // not as RUNNING) using a bounded context. Safe to call after the main
 // context has been cancelled. Intended to be called synchronously from main
 // just before exit so the verdict is durable in the ConfigMap.
-func (r *CheckpointReporter) EmitFinal() {
+func (r *CheckpointReporter) EmitFinal() Summary {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	r.emit(ctx, true)
+	return r.emit(ctx, true)
 }
 
 // emit writes the current summary to stdout, GH Actions annotations, and the
 // status ConfigMap. final=true means this is the shutdown emit, in which case
 // PASS is persisted as "PASS" (not "RUNNING") so consumers can distinguish a
 // finished clean run from an in-flight checkpoint.
-func (r *CheckpointReporter) emit(ctx context.Context, final bool) {
-	summary := r.summaryFunc()
+func (r *CheckpointReporter) emit(ctx context.Context, final bool) Summary {
+	r.emitMu.Lock()
+	defer r.emitMu.Unlock()
+	if final && r.finalEmitted {
+		return r.finalSummary
+	}
+	if !final && r.finalEmitted {
+		return Summary{}
+	}
+
+	summary := r.summaryFunc(final)
+	if final {
+		r.finalEmitted = true
+		r.finalSummary = summary
+	}
 
 	// Intermediate PASS checkpoints surface as RUNNING; the final emit
 	// preserves the true PASS/FAIL outcome.
@@ -99,13 +120,18 @@ func (r *CheckpointReporter) emit(ctx context.Context, final bool) {
 
 	// Persist to ConfigMap.
 	if r.clientset == nil {
-		return
+		return summary
 	}
 
 	data := map[string]string{
-		"latest-report": markdown,
-		"last-updated":  time.Now().UTC().Format(time.RFC3339),
-		"result":        resultStr,
+		"latest-report":     markdown,
+		"last-updated":      time.Now().UTC().Format(time.RFC3339),
+		"result":            resultStr,
+		"operation-status":  string(summary.OperationRun.Status),
+		"operation-results": marshalOperationResults(summary.OperationRun.Results),
+	}
+	if len(summary.OperationRun.Aggregates) > 0 {
+		data["operation-aggregates"] = marshalOperationAggregates(summary.OperationRun.Aggregates)
 	}
 
 	cm := &corev1.ConfigMap{
@@ -142,14 +168,32 @@ func (r *CheckpointReporter) emit(ctx context.Context, final bool) {
 
 	// Also log the summary as JSON for structured log consumers.
 	summaryJSON, _ := json.Marshal(map[string]any{
-		"result":          resultStr,
-		"elapsed":         summary.Duration.String(),
-		"writes":          summary.Metrics.WriteAttempted,
-		"gaps":            summary.Metrics.GapsDetected,
-		"ops":             summary.OpsExecuted,
-		"memory_leak":     summary.LeakAnalysis.HasLeak,
-		"memory_slope":    fmt.Sprintf("%.2f MB/h", summary.LeakAnalysis.MemorySlopeMB),
-		"checkpoint_time": time.Now().UTC().Format(time.RFC3339),
+		"result":           resultStr,
+		"elapsed":          summary.Duration.String(),
+		"writes":           summary.Metrics.WriteAttempted,
+		"gaps":             summary.Metrics.GapsDetected,
+		"ops":              summary.OpsExecuted,
+		"memory_leak":      summary.LeakAnalysis.HasLeak,
+		"memory_slope":     fmt.Sprintf("%.2f MB/h", summary.LeakAnalysis.MemorySlopeMB),
+		"operation_status": summary.OperationRun.Status,
+		"checkpoint_time":  time.Now().UTC().Format(time.RFC3339),
 	})
 	log.Printf("[checkpoint] %s", string(summaryJSON))
+	return summary
+}
+
+func marshalOperationResults(results []operations.OperationResult) string {
+	if results == nil {
+		results = []operations.OperationResult{}
+	}
+	data, _ := json.Marshal(results)
+	return string(data)
+}
+
+func marshalOperationAggregates(aggregates []operations.OperationAggregate) string {
+	if aggregates == nil {
+		aggregates = []operations.OperationAggregate{}
+	}
+	data, _ := json.Marshal(aggregates)
+	return string(data)
 }

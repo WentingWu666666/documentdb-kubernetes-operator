@@ -28,6 +28,15 @@ const (
 	EnvOpCooldown      = "LONGHAUL_OP_COOLDOWN"
 	EnvRecoveryTimeout = "LONGHAUL_RECOVERY_TIMEOUT"
 	EnvSteadyStateWait = "LONGHAUL_STEADY_STATE_WAIT"
+	EnvOperationMode   = "LONGHAUL_OPERATION_MODE"
+	EnvOperationSeq    = "LONGHAUL_OPERATION_SEQUENCE"
+	// EnvOperationCoverage enables coverage mode for random operation mode: the
+	// scheduler draws each operation without replacement and completes once every
+	// operation has run at least once (instead of running until MaxDuration).
+	EnvOperationCoverage = "LONGHAUL_OPERATION_COVERAGE"
+	// EnvOperationSeed pins the scheduler's weighted-random selection to a fixed
+	// seed so a random-mode run is reproducible. Only valid in random mode.
+	EnvOperationSeed = "LONGHAUL_OPERATION_SEED"
 	// Scale operation bounds. The DocumentDB CRD hard-caps spec.nodeCount=1,
 	// so the scale dimension actually exercised is spec.instancesPerNode (1-3).
 	EnvMinInstances = "LONGHAUL_MIN_INSTANCES"
@@ -54,6 +63,15 @@ const (
 // per writer when pruning is enabled. At ~10 writes/sec/writer this retains
 // roughly 55 hours of history per writer while bounding steady-state disk use.
 const DefaultRetainPerWriter = 2_000_000
+
+// OperationMode controls how disruptive operations are run.
+type OperationMode string
+
+const (
+	OperationModeRandom   OperationMode = "random"
+	OperationModeSequence OperationMode = "sequence"
+	OperationModeDisabled OperationMode = "disabled"
+)
 
 // Config holds all configuration for a long haul test run.
 type Config struct {
@@ -84,6 +102,24 @@ type Config struct {
 
 	// SteadyStateWait is how long the cluster must be healthy before an operation fires.
 	SteadyStateWait time.Duration
+
+	// OperationMode selects weighted-random, deterministic sequence, or no operations.
+	OperationMode OperationMode
+
+	// OperationSequence is the ordered list used only in sequence mode.
+	OperationSequence []string
+
+	// OperationCoverage, valid only in random mode, makes the scheduler draw each
+	// operation without replacement and finish once every operation has run at
+	// least once. This gates the real scheduler path while guaranteeing per-op
+	// coverage for the smoke gate; MaxDuration becomes a watchdog.
+	OperationCoverage bool
+
+	// OperationSeed pins weighted-random selection for reproducibility. Only used
+	// in random mode. OperationSeedSet distinguishes an explicit 0 from "unset"
+	// (unset uses the process-global generator, i.e. production behavior).
+	OperationSeed    int64
+	OperationSeedSet bool
 
 	// MinInstances is the minimum spec.instancesPerNode for scale-down.
 	// CRD lower bound is 1.
@@ -135,6 +171,7 @@ func DefaultConfig() Config {
 		OpCooldown:        5 * time.Minute,
 		RecoveryTimeout:   5 * time.Minute,
 		SteadyStateWait:   60 * time.Second,
+		OperationMode:     OperationModeRandom,
 		MinInstances:      1,
 		MaxInstances:      3,
 		ReportInterval:    1 * time.Hour,
@@ -207,6 +244,31 @@ func LoadFromEnv() (Config, error) {
 			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvSteadyStateWait, v, err)
 		}
 		cfg.SteadyStateWait = d
+	}
+
+	if v := strings.TrimSpace(os.Getenv(EnvOperationMode)); v != "" {
+		cfg.OperationMode = OperationMode(strings.ToLower(v))
+	}
+
+	if v := strings.TrimSpace(os.Getenv(EnvOperationSeq)); v != "" {
+		sequence, err := parseOperationSequence(v)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvOperationSeq, v, err)
+		}
+		cfg.OperationSequence = sequence
+	}
+
+	if v := strings.TrimSpace(strings.ToLower(os.Getenv(EnvOperationCoverage))); v != "" {
+		cfg.OperationCoverage = v == "true" || v == "1" || v == "yes"
+	}
+
+	if v := strings.TrimSpace(os.Getenv(EnvOperationSeed)); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvOperationSeed, v, err)
+		}
+		cfg.OperationSeed = n
+		cfg.OperationSeedSet = true
 	}
 
 	if v := os.Getenv(EnvMinInstances); v != "" {
@@ -295,6 +357,34 @@ func (c *Config) Validate() error {
 	if c.RecoveryTimeout <= 0 {
 		return fmt.Errorf("recovery timeout must be positive, got %s", c.RecoveryTimeout)
 	}
+	switch c.OperationMode {
+	case OperationModeRandom, OperationModeDisabled:
+		if len(c.OperationSequence) > 0 {
+			return fmt.Errorf("operation sequence must be empty when operation mode is %q", c.OperationMode)
+		}
+	case OperationModeSequence:
+		if len(c.OperationSequence) == 0 {
+			return fmt.Errorf("operation sequence must not be empty when operation mode is %q", c.OperationMode)
+		}
+		seen := make(map[string]struct{}, len(c.OperationSequence))
+		for _, name := range c.OperationSequence {
+			if _, ok := seen[name]; ok {
+				return fmt.Errorf("operation sequence contains duplicate name %q", name)
+			}
+			seen[name] = struct{}{}
+		}
+	default:
+		return fmt.Errorf("operation mode must be one of %q, %q, or %q, got %q",
+			OperationModeRandom, OperationModeSequence, OperationModeDisabled, c.OperationMode)
+	}
+	if c.OperationCoverage && c.OperationMode != OperationModeRandom {
+		return fmt.Errorf("operation coverage is only supported in %q mode, got %q",
+			OperationModeRandom, c.OperationMode)
+	}
+	if c.OperationSeedSet && c.OperationMode != OperationModeRandom {
+		return fmt.Errorf("operation seed is only supported in %q mode, got %q",
+			OperationModeRandom, c.OperationMode)
+	}
 	if c.MinInstances < 1 {
 		return fmt.Errorf("min instances must be at least 1, got %d", c.MinInstances)
 	}
@@ -319,6 +409,19 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("retain per writer must not be negative, got %d", c.RetainPerWriter)
 	}
 	return nil
+}
+
+func parseOperationSequence(value string) ([]string, error) {
+	parts := strings.Split(value, ",")
+	sequence := make([]string, 0, len(parts))
+	for _, part := range parts {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			return nil, fmt.Errorf("operation names must not be empty")
+		}
+		sequence = append(sequence, name)
+	}
+	return sequence, nil
 }
 
 // IsEnabled returns true if the long haul test is explicitly enabled

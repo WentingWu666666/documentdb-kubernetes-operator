@@ -128,8 +128,13 @@ All configuration is via environment variables.
 | `LONGHAUL_OPERATOR_NAMESPACE` | No | `documentdb-operator` | Namespace of the DocumentDB operator Deployment (target of the `kill-operator-pod` chaos op). |
 | `LONGHAUL_MAX_DURATION` | No | `30m` | Max test duration. Use `0s` for run-until-failure. |
 | `LONGHAUL_NUM_WRITERS` | No | `5` | Number of concurrent writers. |
+| `LONGHAUL_OPERATION_MODE` | No | `random` | Operation runner: `random`, `sequence`, or `disabled`. |
+| `LONGHAUL_OPERATION_SEQUENCE` | No | empty | Comma-separated stable operation names. Required and used only in `sequence` mode; rejected in `random`/`disabled` mode. Whitespace is trimmed, and duplicate or unknown names are rejected. |
+| `LONGHAUL_OPERATION_COVERAGE` | No | `false` | Only valid in `random` mode. When true, the scheduler draws each operation without replacement and completes once every operation has run at least once (instead of running until `MAX_DURATION`, which becomes a watchdog). Used by the smoke gate to exercise the real scheduler while guaranteeing per-op coverage. |
+| `LONGHAUL_OPERATION_SEED` | No | unset | Only valid in `random` mode. Pins weighted-random selection to a fixed seed for reproducible runs. Unset uses the process-global generator (production behavior). |
 | `LONGHAUL_OP_COOLDOWN` | No | `5m` | Cooldown between management operations. |
 | `LONGHAUL_RECOVERY_TIMEOUT` | No | `5m` | Max wait for cluster recovery after an operation. |
+| `LONGHAUL_STEADY_STATE_WAIT` | No | `60s` | Continuous healthy duration required by the steady-state gate. |
 | `LONGHAUL_MIN_INSTANCES` | No | `1` | Minimum `spec.instancesPerNode` for scale-down operations (CRD lower bound: 1). |
 | `LONGHAUL_MAX_INSTANCES` | No | `3` | Maximum `spec.instancesPerNode` for scale-up operations (CRD upper bound: 3). |
 | `LONGHAUL_REPORT_INTERVAL` | No | `1h` | How often to write checkpoint reports to ConfigMap. |
@@ -184,8 +189,16 @@ accumulation window long-haul exists to cover.
 
 ## Operations
 
-The scheduler runs one disruptive operation at a time, gated by steady state and
-a global cooldown. Current operations:
+`random` mode preserves the production long-haul behavior: the scheduler picks
+weighted eligible operations every 10 seconds, runs one disruptive operation at
+a time, and applies the global cooldown. `sequence` mode runs each configured
+operation exactly once and in order, stopping on the first execution,
+precondition, recovery, or policy failure; a successful or failed sequence
+emits its final report and exits immediately instead of waiting for
+`LONGHAUL_MAX_DURATION`. `disabled` mode runs no operations. All modes keep the
+continuous writer/verifier workload active.
+
+Current stable operation names:
 
 | Operation | Kind | Notes |
 |-----------|------|-------|
@@ -210,6 +223,13 @@ single primary handover (an ungraceful failover vs. a graceful switchover), and
 an upgrade's longer whole-topology restart is bounded by `MustRecoverWithin`,
 not the write-outage budget.
 
+Operation execution failures are terminal verdict failures in both `random` and
+`sequence` modes. Reports keep bounded operation state: one mutable result per
+requested sequence item, or aggregate passed/failed counters per operation name
+in random mode. The `longhaul-report` ConfigMap exposes `operation-status`,
+`operation-results` JSON, and random-mode `operation-aggregates` JSON alongside
+the existing `result` and `latest-report` fields.
+
 ### RBAC for chaos operations
 
 Beyond the base RBAC the driver already needs, the chaos operations require the
@@ -226,11 +246,23 @@ driver ServiceAccount to be granted (all present in `deploy/rbac.yaml`):
 
 ## CI Safety
 
-The long haul test binary is deployed as a Kubernetes Deployment on a dedicated AKS
-cluster. It does **not** run in any PR-gated CI workflow. Because a Deployment
-auto-restarts crashed pods, the source of truth for "did the test pass?" is the
+The production long haul test binary is deployed as a Kubernetes Deployment on
+a dedicated AKS cluster. A short PR smoke workflow runs the same driver and
+manifests against kind in **random coverage mode**. Because a Deployment
+auto-restarts exited pods, the source of truth for "did the test pass?" is the
 `longhaul-report` ConfigMap and the GitHub Actions annotations, not the pod
 status.
+
+The smoke gate runs the real random scheduler — the exact path the multi-day
+run uses — but with `LONGHAUL_OPERATION_COVERAGE=true` and a pinned
+`LONGHAUL_OPERATION_SEED`, so it draws each operation without replacement and
+completes once every registered operation has run at least once: scale up,
+scale down, kill the operator pod, kill the primary pod, and upgrade DocumentDB.
+This exercises `scheduler.go`'s weighted selection, cooldown, and steady-state
+gates while still guaranteeing per-op coverage and a deterministic verdict. The
+upgrade gives the existing database images a second local tag, exercising the
+rolling-update mechanics without conflating this gate with cross-version
+compatibility testing.
 
 The config unit tests (`test/longhaul/config/`) run unconditionally and are included in normal
 CI test runs — they are fast (~0.002s) and require no cluster.

@@ -24,8 +24,9 @@ const (
 // trim cost is amortized over many appends (one copy every trimHeadroom
 // events), not paid on every append once we hit the cap.
 const (
-	maxEvents    = 10000
-	trimHeadroom = 1000
+	maxEvents            = 10000
+	trimHeadroom         = 1000
+	maxDisruptionWindows = 1000
 )
 
 // Event represents a single journal entry.
@@ -134,7 +135,7 @@ func (j *Journal) OpenDisruptionWindow(operationName string, policy OutagePolicy
 	// Close any existing window first.
 	if j.activeWindow != nil {
 		j.activeWindow.EndTime = time.Now()
-		j.closedWindows = append(j.closedWindows, *j.activeWindow)
+		j.appendClosedWindow(*j.activeWindow)
 	}
 
 	j.activeWindow = &DisruptionWindow{
@@ -152,17 +153,18 @@ func (j *Journal) OpenDisruptionWindow(operationName string, policy OutagePolicy
 	})
 }
 
-// CloseDisruptionWindow ends the active disruption period.
-func (j *Journal) CloseDisruptionWindow() {
+// CloseDisruptionWindow ends the active disruption period and returns a copy.
+func (j *Journal) CloseDisruptionWindow() *DisruptionWindow {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
 	if j.activeWindow == nil {
-		return
+		return nil
 	}
 
 	j.activeWindow.EndTime = time.Now()
-	j.closedWindows = append(j.closedWindows, *j.activeWindow)
+	j.appendClosedWindow(*j.activeWindow)
+	closed := *j.activeWindow
 
 	j.events = append(j.events, Event{
 		Timestamp: time.Now(),
@@ -173,6 +175,15 @@ func (j *Journal) CloseDisruptionWindow() {
 	})
 
 	j.activeWindow = nil
+	return &closed
+}
+
+func (j *Journal) appendClosedWindow(window DisruptionWindow) {
+	j.closedWindows = append(j.closedWindows, window)
+	if len(j.closedWindows) > maxDisruptionWindows {
+		copy(j.closedWindows, j.closedWindows[len(j.closedWindows)-maxDisruptionWindows:])
+		j.closedWindows = j.closedWindows[:maxDisruptionWindows]
+	}
 }
 
 // RecordWriteFailure increments the failure count for the active disruption window.

@@ -44,7 +44,7 @@ flowchart LR
 | Component | Role | Output |
 |---|---|---|
 | **Writer/Verifier** | Data-plane workload. Connects via `mongodb://` only — no k8s imports. Writers insert monotonic sequences with checksums under majority write concern; verifiers scan for gaps and bad checksums. | Counters (acked, failed, verify passes, gaps, checksum errors); errors to journal. |
-| **Operation Scheduler** | Control plane. Applies weighted-random ops (scale, kill, failover, backup, upgrade) with preconditions and cooldowns. | Operation start/end events to journal. |
+| **Operation Runner** | Control plane. Applies weighted-random ops for production long-haul runs, a deterministic named sequence for smoke/reproduction, or no ops when disabled. | Bounded per-operation results/aggregates plus operation events to journal. |
 | **Monitor** | Polls pod RSS/CPU and checks readiness of operator + DB pods. | Periodic samples + readiness events to journal. |
 | **Journal** | In-process append-only event log shared by all components. | Reproducible event stream for the report. |
 | **Report** | Aggregates the journal into a markdown summary at a configurable interval; raises alerts on threshold breaches. | Markdown report; alert lines. |
@@ -77,7 +77,11 @@ The test runs **continuously** — no cycles, no scheduled resets. Workload, met
 
 ## Operations
 
-The scheduler picks operations from these categories with weighted randomization:
+Production runs use weighted randomization. Deterministic smoke and reproduction
+runs can instead request a comma-separated sequence of stable operation names;
+each operation runs exactly once in order and the driver exits as soon as the
+sequence completes or fails. A disabled mode leaves the workload running without
+management operations.
 
 | Category | Examples |
 |---|---|
@@ -87,15 +91,33 @@ The scheduler picks operations from these categories with weighted randomization
 | **Chaos** | kill primary pod, drain node, kill operator pod |
 | **Data protection** | trigger backup, verify backup |
 
-**Sequencing invariants** (enforced by the scheduler — exact values live in code):
+**Operation invariants** (exact values live in code):
 
-- One disruptive op at a time. Overlapping disruptions are non-diagnosable.
-- Per-category cooldown between ops. Lets the cluster stabilize.
-- Steady-state gate — health check must pass before the next op fires.
+- One disruptive op at a time in every mode. Overlapping disruptions are
+  non-diagnosable.
+- Random mode applies the global cooldown between attempts.
+- The steady-state gate must pass before each operation. Sequence mode also
+  requires each named precondition to become true within the recovery timeout.
 
 **Backup is not isolated.** It runs concurrently with topology changes and chaos so that backup-vs-topology serialization bugs surface here rather than in production — that serialization is the backup feature's job, not the harness's.
 
 Each operation declares an **outage policy**: tolerated write failures during its disruption window and a max recovery time. Breaching the policy is recorded as a Tier-1 failure (see Failure Tiers).
+
+Operation state is intentionally bounded for multi-day runs. Random mode keeps
+only passed/failed counters per registered operation type; sequence mode keeps
+one mutable `PENDING`/`RUNNING`/`PASSED`/`FAILED` result per requested item.
+Execution errors, precondition timeouts, outage-policy violations, and an
+incomplete sequence at shutdown all produce a failing final verdict.
+
+**Random coverage mode** (used by the PR smoke gate) is a variant of random
+mode: the scheduler draws each operation *without replacement* and completes
+once every registered operation has run at least once, rather than running for
+the full duration. A fixed seed (`LONGHAUL_OPERATION_SEED`) makes selection
+reproducible. This lets the smoke gate exercise the production scheduler path —
+weighted selection, cooldown, and steady-state gates — while guaranteeing per-op
+coverage and a deterministic PASS/FAIL verdict; `MAX_DURATION` becomes the
+completion watchdog, and a run that stops before covering every operation is a
+failing `INCOMPLETE` verdict.
 
 ---
 

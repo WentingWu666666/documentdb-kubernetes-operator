@@ -10,8 +10,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/documentdb/documentdb-operator/test/longhaul/config"
 	"github.com/documentdb/documentdb-operator/test/longhaul/journal"
 	"github.com/documentdb/documentdb-operator/test/longhaul/monitor"
+	"github.com/documentdb/documentdb-operator/test/longhaul/operations"
 	"github.com/documentdb/documentdb-operator/test/longhaul/workload"
 )
 
@@ -67,6 +69,41 @@ var _ = Describe("GenerateMarkdown", func() {
 		It("is hidden when there are no windows", func() {
 			md := GenerateMarkdown(Summary{Result: ResultPass})
 			Expect(md).NotTo(ContainSubstring("Disruption Windows"))
+		})
+
+		It("renders ordered sequence operation results", func() {
+			md := GenerateMarkdown(Summary{
+				Result: ResultPass,
+				OperationRun: operations.RunSnapshot{
+					Mode:   config.OperationModeSequence,
+					Status: operations.RunStatusComplete,
+					Results: []operations.OperationResult{
+						{Name: "kill-operator-pod", Status: operations.OperationPassed},
+						{Name: "kill-primary-pod", Status: operations.OperationFailed, Error: "primary unchanged"},
+					},
+				},
+			})
+			Expect(md).To(ContainSubstring("## Operation Results"))
+			Expect(md).To(ContainSubstring("| 1 | kill-operator-pod | PASSED |"))
+			Expect(md).To(ContainSubstring("| 2 | kill-primary-pod | FAILED | primary unchanged |"))
+			Expect(strings.Index(md, "kill-operator-pod")).To(BeNumerically("<", strings.Index(md, "kill-primary-pod")))
+		})
+
+		It("renders bounded random aggregate counters", func() {
+			md := GenerateMarkdown(Summary{
+				Result: ResultPass,
+				OperationRun: operations.RunSnapshot{
+					Mode:   config.OperationModeRandom,
+					Status: operations.RunStatusRunning,
+					Aggregates: []operations.OperationAggregate{
+						{Name: "scale-up", Passed: 12, Failed: 1},
+						{Name: "scale-down", Passed: 9},
+					},
+				},
+			})
+			Expect(md).To(ContainSubstring("## Operation Summary"))
+			Expect(md).To(ContainSubstring("| scale-up | 12 | 1 |"))
+			Expect(md).To(ContainSubstring("| scale-down | 9 | 0 |"))
 		})
 
 		It("appears with the operation name when at least one window exists", func() {

@@ -10,6 +10,7 @@ import "time"
 // independently (ExceededPolicy trips if either is exceeded): MaxWriteOutage
 // bounds client-visible write availability, while MustRecoverWithin bounds the
 // cluster's return to its full declared topology (all pods Ready, CR Ready).
+// Operation execution errors also fail the run independently of this policy.
 // Each can be violated while the other is fine — e.g. after a failover writes
 // resume quickly (MaxWriteOutage happy) yet the cluster stays degraded until a
 // replacement standby rejoins, which only MustRecoverWithin catches.
@@ -23,9 +24,7 @@ type OutagePolicy struct {
 	MaxWriteOutage time.Duration
 
 	// MustRecoverWithin is the maximum time from operation start to full cluster
-	// recovery (steady state). Because a failed op is only logged, not counted
-	// toward the run verdict, this is the sole mechanism that turns a cluster
-	// that never converges back into a FAIL.
+	// recovery (steady state).
 	MustRecoverWithin time.Duration
 }
 

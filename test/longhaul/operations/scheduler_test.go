@@ -120,4 +120,92 @@ var _ = Describe("Scheduler", func() {
 		s.opsExecuted = 7
 		Expect(s.OpsExecuted()).To(Equal(7))
 	})
+
+	It("keeps bounded aggregate counters and exposes failures", func() {
+		a := &fakeOp{name: "a"}
+		b := &fakeOp{name: "b"}
+		s := NewScheduler([]Operation{a, b}, nil, journal.New(), time.Hour)
+
+		for i := 0; i < 1000; i++ {
+			s.recordExecution("a", nil)
+		}
+		s.recordExecution("b", errors.New("first failure"))
+		s.recordExecution("b", errors.New("second failure"))
+
+		snapshot := s.Snapshot()
+		Expect(snapshot.Aggregates).To(Equal([]OperationAggregate{
+			{Name: "a", Passed: 1000},
+			{Name: "b", Failed: 2},
+		}))
+		Expect(snapshot.Status).To(Equal(RunStatusFailed))
+		Expect(snapshot.HasFailure()).To(BeTrue())
+		Expect(snapshot.FailureReason).To(ContainSubstring("first failure"))
+	})
+
+	Describe("WithSeed", func() {
+		It("makes weighted selection reproducible across schedulers", func() {
+			mk := func() *Scheduler {
+				return NewScheduler([]Operation{
+					&fakeOp{name: "a", weight: 1, available: true},
+					&fakeOp{name: "b", weight: 1, available: true},
+					&fakeOp{name: "c", weight: 1, available: true},
+				}, nil, journal.New(), time.Hour, WithSeed(42))
+			}
+			s1, s2 := mk(), mk()
+			var seq1, seq2 []string
+			for i := 0; i < 25; i++ {
+				seq1 = append(seq1, s1.selectOperation(context.Background()).Name())
+				seq2 = append(seq2, s2.selectOperation(context.Background()).Name())
+			}
+			Expect(seq1).To(Equal(seq2))
+		})
+	})
+
+	Describe("WithCoverage", func() {
+		It("draws each operation without replacement", func() {
+			a := &fakeOp{name: "a", weight: 1, available: true}
+			b := &fakeOp{name: "b", weight: 1, available: true}
+			s := NewScheduler([]Operation{a, b}, nil, journal.New(), time.Hour, WithCoverage())
+
+			// Once "a" is covered, selection must never return it again.
+			s.recordExecution("a", nil)
+			for i := 0; i < 50; i++ {
+				got := s.selectOperation(context.Background())
+				Expect(got).NotTo(BeNil(), "iter %d", i)
+				Expect(got.Name()).To(Equal("b"))
+			}
+
+			// Once every operation is covered there are no candidates left.
+			s.recordExecution("b", nil)
+			Expect(s.selectOperation(context.Background())).To(BeNil())
+		})
+
+		It("completes the run once every operation has run at least once", func() {
+			a := &fakeOp{name: "a"}
+			b := &fakeOp{name: "b"}
+			s := NewScheduler([]Operation{a, b}, nil, journal.New(), time.Hour, WithCoverage())
+			s.state.snapshot.Status = RunStatusRunning
+
+			s.recordExecution("a", nil)
+			Expect(s.Snapshot().Status).To(Equal(RunStatusRunning))
+
+			s.recordExecution("b", nil)
+			Expect(s.Snapshot().Status).To(Equal(RunStatusComplete))
+		})
+
+		It("does not complete a partially covered run", func() {
+			a := &fakeOp{name: "a"}
+			b := &fakeOp{name: "b"}
+			s := NewScheduler([]Operation{a, b}, nil, journal.New(), time.Hour, WithCoverage())
+			s.state.snapshot.Status = RunStatusRunning
+
+			s.recordExecution("a", nil)
+
+			s.state.mu.RLock()
+			covered := s.allCoveredLocked()
+			s.state.mu.RUnlock()
+			Expect(covered).To(BeFalse())
+			Expect(s.Snapshot().Status).To(Equal(RunStatusRunning))
+		})
+	})
 })

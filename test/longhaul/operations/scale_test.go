@@ -18,16 +18,17 @@ import (
 
 // fakeClient is a minimal monitor.ClusterClient stub for unit tests.
 type fakeClient struct {
-	mu               sync.Mutex
-	instancesPerNode int
-	ipnErr           error
-	imageTag         string
-	scaleCalls       []int
-	upgradeCalls     []string
-	primary          string
-	primaryErr       error
-	deleteErr        error
-	deletedPods      []string
+	mu                 sync.Mutex
+	instancesPerNode   int
+	ipnErr             error
+	imageTag           string
+	scaleCalls         []int
+	upgradeCalls       []string
+	primary            string
+	primaryErr         error
+	replacementPrimary string
+	deleteErr          error
+	deletedPods        []string
 }
 
 func (f *fakeClient) GetClusterHealth(_ context.Context) (monitor.ClusterHealth, error) {
@@ -68,6 +69,9 @@ func (f *fakeClient) DeletePod(_ context.Context, name string) error {
 		return f.deleteErr
 	}
 	f.deletedPods = append(f.deletedPods, name)
+	if f.replacementPrimary != "" {
+		f.primary = f.replacementPrimary
+	}
 	return nil
 }
 

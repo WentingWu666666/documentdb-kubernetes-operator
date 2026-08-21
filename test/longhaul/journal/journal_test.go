@@ -80,6 +80,20 @@ var _ = Describe("Journal", func() {
 			j := New()
 			Expect(func() { j.RecordWriteFailure() }).NotTo(Panic())
 		})
+
+		It("bounds closed disruption-window diagnostics to the newest entries", func() {
+			j := New()
+			total := maxDisruptionWindows + 5
+			for i := 0; i < total; i++ {
+				j.OpenDisruptionWindow(fmt.Sprintf("op-%d", i), DefaultOutagePolicy())
+				j.CloseDisruptionWindow()
+			}
+
+			windows := j.DisruptionWindows()
+			Expect(windows).To(HaveLen(maxDisruptionWindows))
+			Expect(windows[0].OperationName).To(Equal("op-5"))
+			Expect(windows[len(windows)-1].OperationName).To(Equal(fmt.Sprintf("op-%d", total-1)))
+		})
 	})
 
 	Describe("HasPolicyViolation", func() {

@@ -12,8 +12,20 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/documentdb/documentdb-operator/test/longhaul/journal"
-	"github.com/documentdb/documentdb-operator/test/longhaul/monitor"
 )
+
+type successfulSteadyGate struct {
+	calls  int
+	onWait func()
+}
+
+func (g *successfulSteadyGate) WaitForSteadyState(context.Context) error {
+	g.calls++
+	if g.onWait != nil {
+		g.onWait()
+	}
+	return nil
+}
 
 var _ = Describe("KillPrimaryPod", func() {
 	It("Name is kill-primary-pod and Weight is 2", func() {
@@ -46,19 +58,49 @@ var _ = Describe("KillPrimaryPod", func() {
 		Entry("HA: ipn=3 -> eligible", 3, nil, true, ""),
 	)
 
-	It("Execute deletes the reported primary pod", func() {
-		c := &fakeClient{instancesPerNode: 2, primary: "cluster-1"}
-		// The health monitor never reaches steady state here (its Run loop
-		// isn't started), so Execute times out on WaitForSteadyState — but the
-		// primary delete side-effect has already happened, which is what we
-		// assert. A short recovery keeps the test fast.
-		hm := monitor.NewHealthMonitor(c, journal.New(), time.Hour)
-		k := NewKillPrimaryPod(c, hm, 500*time.Millisecond)
+	It("Execute deletes the original primary and verifies a different primary", func() {
+		c := &fakeClient{
+			instancesPerNode:   2,
+			primary:            "cluster-1",
+			replacementPrimary: "cluster-2",
+		}
+		gate := &successfulSteadyGate{}
+		k := NewKillPrimaryPod(c, gate, time.Second)
 
-		_ = k.Execute(context.Background())
+		Expect(k.Execute(context.Background())).To(Succeed())
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		Expect(c.deletedPods).To(ConsistOf("cluster-1"))
+		Expect(c.primary).To(Equal("cluster-2"))
+		Expect(gate.calls).To(Equal(1))
+	})
+
+	It("fails when CNPG keeps reporting the deleted primary", func() {
+		c := &fakeClient{instancesPerNode: 2, primary: "cluster-1"}
+		gate := &successfulSteadyGate{}
+		k := NewKillPrimaryPod(c, gate, 20*time.Millisecond)
+		k.primaryPollInterval = time.Millisecond
+
+		err := k.Execute(context.Background())
+		Expect(err).To(MatchError(ContainSubstring(`primary did not change from "cluster-1"`)))
+		Expect(gate.calls).To(Equal(0), "steady-state recovery must wait until primary change is proven")
+	})
+
+	It("fails if the recovered cluster reports the original primary again", func() {
+		c := &fakeClient{
+			instancesPerNode:   2,
+			primary:            "cluster-1",
+			replacementPrimary: "cluster-2",
+		}
+		gate := &successfulSteadyGate{onWait: func() {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			c.primary = "cluster-1"
+		}}
+		k := NewKillPrimaryPod(c, gate, time.Second)
+
+		err := k.Execute(context.Background())
+		Expect(err).To(MatchError(ContainSubstring("expected a non-empty primary different")))
 	})
 
 	It("Execute fails without deleting when the primary is unknown", func() {
