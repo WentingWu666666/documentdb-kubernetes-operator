@@ -213,11 +213,35 @@ For additional recovery options (including PV-based recovery), see [Restore a De
 
 ## Backups in multi-region deployments
 
-In a [multi-region deployment](../multi-region-deployment/overview.md), a single DocumentDB cluster spans multiple regions with one region acting as the **primary** and the others running as **standby** replicas. Backups behave the same way as in a single-region cluster, with a few region-aware rules the operator enforces automatically:
+In a [multi-region deployment](../multi-region-deployment/overview.md), a single DocumentDB cluster spans multiple regions — one region is the **primary** and the others are **standby** replicas. Each region runs its own operator, and **an operator only acts on `Backup` and `ScheduledBackup` resources in its own Kubernetes cluster — there is no cross-cluster routing.** Apart from that, backups behave exactly as in a single-region cluster.
 
-- **Only the primary region is backed up.** Each region runs its own operator, and an operator only acts on `Backup` and `ScheduledBackup` resources in its own Kubernetes cluster — there is no cross-cluster routing. The operator in the primary region takes the snapshot; operators in standby regions skip the request. Because of this, the resource must exist in the cluster that currently holds the primary role. Either apply it directly to the current primary cluster, or propagate it to every member cluster (for example, via [KubeFleet](../multi-region-deployment/overview.md#managed-fleet-orchestration)) so that the primary-region operator executes it while standby regions skip it automatically.
-- **Requests against a standby region are skipped, not failed.** If a `Backup` is reconciled while the local region is a standby, the operator marks it as skipped with the message *"Backups can only be created from the primary cluster"*. This keeps `ScheduledBackup` resources safe to define identically in every region.
-- **Failover (site-swap) is handled automatically.** When the primary role moves to a different region (planned or unplanned failover), subsequent backups are taken from the newly promoted primary. If a backup is requested while a promotion is still in progress and the primary endpoint is not yet ready, the operator defers the backup and retries once promotion completes — it does not fail the backup.
+### What you need to do
+
+Make sure the `Backup` or `ScheduledBackup` exists in the cluster that currently holds the **primary** role. You have two options:
+
+- **Apply it directly** to the current primary cluster, or
+- **Propagate it to every member cluster** (for example, via [KubeFleet](../multi-region-deployment/overview.md#managed-fleet-orchestration)). The primary-region operator runs the backup while standby-region operators skip it, so the same resource is safe to define identically in every region — including after a failover.
+
+### Region behavior at a glance
+
+| Region role | Operator behavior | Backup `Phase` |
+|-------------|-------------------|----------------|
+| **Primary** | Takes the VolumeSnapshot | `completed` |
+| **Standby** | Skips it, with the message *"Backups can only be created from the primary cluster"* (not an error) | `skipped` |
+| **Promotion in progress** | Defers the backup and retries until the new primary endpoint is ready (not an error) | pending → `completed` |
+
+**Failover (site-swap) is handled automatically.** When the primary role moves to another region (planned or unplanned), subsequent backups are taken from the newly promoted primary. A backup requested while promotion is still in progress is deferred and retried once the primary endpoint is ready — it is never failed for this reason.
+
+### Verify which backups ran
+
+List the backups and check the `PHASE` column to see which region took the snapshot and which skipped:
+
+```bash
+kubectl get backups -n <namespace>
+# NAME             CLUSTER              PHASE       ...
+# backup-example   documentdb-preview   completed        # taken on the primary region
+# backup-example   documentdb-preview   skipped          # standby region, safely skipped
+```
 
 !!! tip "Scheduled backups across regions"
 
