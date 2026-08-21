@@ -215,13 +215,13 @@ For additional recovery options (including PV-based recovery), see [Restore a De
 
 In a [multi-region deployment](../multi-region-deployment/overview.md), a single DocumentDB cluster spans multiple regions with one region acting as the **primary** and the others running as **standby** replicas. Backups behave the same way as in a single-region cluster, with a few region-aware rules the operator enforces automatically:
 
-- **Only the primary region is backed up.** The operator resolves which region currently holds the primary role and takes the snapshot there. You do not need to target a specific region — `Backup` and `ScheduledBackup` resources are created against the DocumentDB cluster and the operator routes the snapshot to the primary.
+- **Only the primary region is backed up.** Each region runs its own operator, and an operator only acts on `Backup` and `ScheduledBackup` resources in its own Kubernetes cluster — there is no cross-cluster routing. The operator in the primary region takes the snapshot; operators in standby regions skip the request. Because of this, the resource must exist in the cluster that currently holds the primary role. Either apply it directly to the current primary cluster, or propagate it to every member cluster (for example, via [KubeFleet](../multi-region-deployment/overview.md#managed-fleet-orchestration)) so that the primary-region operator executes it while standby regions skip it automatically.
 - **Requests against a standby region are skipped, not failed.** If a `Backup` is reconciled while the local region is a standby, the operator marks it as skipped with the message *"Backups can only be created from the primary cluster"*. This keeps `ScheduledBackup` resources safe to define identically in every region.
 - **Failover (site-swap) is handled automatically.** When the primary role moves to a different region (planned or unplanned failover), subsequent backups are taken from the newly promoted primary. If a backup is requested while a promotion is still in progress and the primary endpoint is not yet ready, the operator defers the backup and retries once promotion completes — it does not fail the backup.
 
 !!! tip "Scheduled backups across regions"
 
-    Define your `ScheduledBackup` in the same namespace as the DocumentDB cluster. Because standby regions skip backups rather than erroring, the schedule keeps producing backups from whichever region is primary — including after a failover — with no manual reconfiguration.
+    Define your `ScheduledBackup` in the same namespace as the DocumentDB cluster, and make sure it exists in the current primary cluster — either apply it there directly or propagate it to every member cluster (for example, via KubeFleet). Because standby regions skip backups rather than erroring, a propagated schedule keeps producing backups from whichever region is primary — including after a failover — with no manual reconfiguration.
 
 For planned and unplanned failover steps, see [Failover procedures](../multi-region-deployment/failover-procedures.md).
 
