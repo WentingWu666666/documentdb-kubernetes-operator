@@ -107,16 +107,28 @@ func getEnvironmentSpecificAnnotations(environment string) map[string]string {
 	}
 }
 
-// EnsureServiceIP ensures that the Service has an IP assigned and returns it, or returns an error if not available
+// EnsureServiceIP ensures that the Service has a reachable endpoint and returns
+// the address clients should connect to, or an error if it is not available yet.
+//
+// For ClusterIP services this returns the in-cluster DNS name (<service>.<namespace>.svc)
+// rather than the raw ClusterIP. The DNS name resolves from any pod in the cluster, stays
+// valid when the Service is recreated with a different ClusterIP, and matches the SANs on
+// the gateway certificate, so strict TLS verification succeeds. A raw ClusterIP has no
+// matching SAN and fails hostname verification once TLS is trusted.
+//
+// For LoadBalancer services the externally reachable ingress IP/hostname is returned,
+// since cluster-internal DNS is not resolvable by outside clients.
+//
+// NOTE: the returned value is therefore not always an IP address, despite the name.
 func EnsureServiceIP(ctx context.Context, service *corev1.Service) (string, error) {
 	if service == nil {
 		return "", fmt.Errorf("service is nil")
 	}
 
-	// For ClusterIP services, return the ClusterIP directly
+	// For ClusterIP services, return the stable in-cluster DNS name
 	if service.Spec.Type == corev1.ServiceTypeClusterIP {
 		if service.Spec.ClusterIP != "" && service.Spec.ClusterIP != "None" {
-			return service.Spec.ClusterIP, nil
+			return fmt.Sprintf("%s.%s.svc", service.Name, service.Namespace), nil
 		}
 		return "", fmt.Errorf("ClusterIP not assigned")
 	}
