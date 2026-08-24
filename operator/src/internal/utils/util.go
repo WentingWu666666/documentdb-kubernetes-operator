@@ -28,6 +28,23 @@ import (
 	dbpreview "github.com/documentdb/documentdb-operator/api/preview"
 )
 
+// GetDocumentDBServiceName returns the name of the Service published for a DocumentDB
+// instance, truncated to the 63-character RFC 1123 label limit enforced by Kubernetes.
+//
+// This is the single source of truth for that name. Anything that has to agree with the
+// Service name — most importantly the gateway certificate SANs, which must match the
+// hostname published in status.connectionString for strict TLS verification to succeed —
+// must derive it from here rather than concatenating the prefix and the DocumentDB name
+// itself, otherwise long names silently diverge.
+func GetDocumentDBServiceName(documentDBName string) string {
+	serviceName := DOCUMENTDB_SERVICE_PREFIX + documentDBName
+	if len(serviceName) > 63 {
+		serviceName = serviceName[:63]
+	}
+	// A label may not end in a non-alphanumeric character, which truncation can produce.
+	return strings.TrimRight(serviceName, "-.")
+}
+
 // GetDocumentDBServiceDefinition returns the LoadBalancer Service definition for a given DocumentDB instance
 func GetDocumentDBServiceDefinition(documentdb *dbpreview.DocumentDB, replicationContext *ReplicationContext, namespace string, serviceType corev1.ServiceType) *corev1.Service {
 	// If no local HA, these two should be empty
@@ -41,11 +58,7 @@ func GetDocumentDBServiceDefinition(documentdb *dbpreview.DocumentDB, replicatio
 		}
 	}
 
-	// Ensure service name doesn't exceed 63 characters (Kubernetes limit)
-	serviceName := DOCUMENTDB_SERVICE_PREFIX + documentdb.Name
-	if len(serviceName) > 63 {
-		serviceName = serviceName[:63]
-	}
+	serviceName := GetDocumentDBServiceName(documentdb.Name)
 
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{

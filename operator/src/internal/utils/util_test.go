@@ -696,6 +696,50 @@ func TestGenerateServiceName_PublicFunction(t *testing.T) {
 	}
 }
 
+func TestGetDocumentDBServiceName(t *testing.T) {
+	tests := []struct {
+		name           string
+		documentDBName string
+		expected       string
+	}{
+		{
+			name:           "short name is prefixed verbatim",
+			documentDBName: "test-db",
+			expected:       "documentdb-service-test-db",
+		},
+		{
+			name:           "name at the limit is not truncated",
+			documentDBName: strings.Repeat("a", 44),
+			expected:       "documentdb-service-" + strings.Repeat("a", 44),
+		},
+		{
+			name:           "long name is truncated to 63 characters",
+			documentDBName: strings.Repeat("a", 80),
+			expected:       "documentdb-service-" + strings.Repeat("a", 44),
+		},
+		{
+			name:           "truncation does not leave a trailing hyphen",
+			documentDBName: strings.Repeat("a", 43) + "-" + strings.Repeat("b", 20),
+			expected:       "documentdb-service-" + strings.Repeat("a", 43),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GetDocumentDBServiceName(tt.documentDBName)
+			if result != tt.expected {
+				t.Errorf("GetDocumentDBServiceName(%q) = %q; expected %q", tt.documentDBName, result, tt.expected)
+			}
+			if len(result) > 63 {
+				t.Errorf("GetDocumentDBServiceName(%q) returned %d characters, exceeding the 63-character limit", tt.documentDBName, len(result))
+			}
+			if strings.HasSuffix(result, "-") || strings.HasSuffix(result, ".") {
+				t.Errorf("GetDocumentDBServiceName(%q) = %q, which is not a valid RFC 1123 label", tt.documentDBName, result)
+			}
+		})
+	}
+}
+
 func TestEnsureServiceIP(t *testing.T) {
 	tests := []struct {
 		name           string
