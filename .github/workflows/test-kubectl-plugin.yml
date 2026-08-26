@@ -1,0 +1,75 @@
+# Build, vet and unit-test the kubectl-documentdb plugin.
+#
+# The plugin lives in its own Go module (documentdb-kubectl-plugin/) which is
+# outside the path filters of test-unit.yml, so its tests were never executed
+# in CI. This workflow gives the module the same build/vet/test treatment the
+# operator module gets.
+#
+# The plugin imports the operator's api/preview package through a `replace`
+# directive, so changes under operator/src/api/ can break it; those paths are
+# included in the filter.
+
+name: Unit Test - kubectl plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'documentdb-kubectl-plugin/**'
+      - 'operator/src/api/**'
+      - '.github/workflows/test-kubectl-plugin.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'documentdb-kubectl-plugin/**'
+      - 'operator/src/api/**'
+      - '.github/workflows/test-kubectl-plugin.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  kubectl-plugin-test:
+    name: Build and Test kubectl Plugin
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: documentdb-kubectl-plugin
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: documentdb-kubectl-plugin/go.mod
+          cache-dependency-path: documentdb-kubectl-plugin/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run unit tests
+        run: go test -v -race -count=1 -timeout 10m ./...
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "## kubectl Plugin Test Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ kubectl plugin build, vet and unit tests completed" >> "$GITHUB_STEP_SUMMARY"
