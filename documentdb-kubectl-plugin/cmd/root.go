@@ -27,4 +27,6 @@ func init() {
 	rootCmd.AddCommand(newPromoteCommand())
 	rootCmd.AddCommand(newStatusCommand())
 	rootCmd.AddCommand(newEventsCommand())
+	rootCmd.AddCommand(newBackupCommand())
+	rootCmd.AddCommand(newRestoreCommand())
 }

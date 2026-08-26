@@ -12,7 +12,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -90,7 +89,7 @@ func (o *statusOptions) run(ctx context.Context, cmd *cobra.Command) error {
 		return fmt.Errorf("failed to create hub dynamic client: %w", err)
 	}
 
-	gvr := schema.GroupVersionResource{Group: documentDBGVRGroup, Version: documentDBGVRVersion, Resource: documentDBGVRResource}
+	gvr := documentDBGVR()
 
 	document, err := dynHub.Resource(gvr).Namespace(o.namespace).Get(ctx, o.documentDBName, metav1.GetOptions{})
 	if err != nil {
@@ -191,7 +190,7 @@ func (o *statusOptions) populateClusterStatus(ctx context.Context, st *clusterSt
 		return fmt.Errorf("dynamic client: %w", err)
 	}
 
-	gvr := schema.GroupVersionResource{Group: documentDBGVRGroup, Version: documentDBGVRVersion, Resource: documentDBGVRResource}
+	gvr := documentDBGVR()
 
 	document, err := dynClient.Resource(gvr).Namespace(o.namespace).Get(ctx, o.documentDBName, metav1.GetOptions{})
 	if err != nil {

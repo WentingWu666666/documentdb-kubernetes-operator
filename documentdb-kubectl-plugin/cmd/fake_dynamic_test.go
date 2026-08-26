@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -16,12 +19,21 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
-func documentDBGVR() schema.GroupVersionResource {
-	return schema.GroupVersionResource{Group: documentDBGVRGroup, Version: documentDBGVRVersion, Resource: documentDBGVRResource}
-}
-
 func documentDBGK() schema.GroupVersionKind {
 	return schema.GroupVersionKind{Group: documentDBGVRGroup, Version: documentDBGVRVersion, Kind: "DocumentDB"}
+}
+
+// kindForResource maps the resources the plugin touches to their kinds so the
+// fake client can keep objects of different types apart.
+func kindForResource(resource string) string {
+	switch resource {
+	case backupGVRResource:
+		return backupKind
+	case scheduledBackupGVRResource:
+		return scheduledBackupKind
+	default:
+		return documentDBKind
+	}
 }
 
 func newDocumentScheme() *runtime.Scheme {
@@ -47,7 +59,7 @@ func newFakeDynamicClient(objs ...*unstructured.Unstructured) dynamic.Interface 
 		if obj == nil {
 			continue
 		}
-		key := namespacedName(obj.GetNamespace(), obj.GetName())
+		key := objectKey(obj.GetKind(), obj.GetNamespace(), obj.GetName())
 		c.objects[key] = obj.DeepCopy()
 	}
 	return c
@@ -133,7 +145,28 @@ type fakeResource struct {
 }
 
 func (r *fakeResource) Create(ctx context.Context, obj *unstructured.Unstructured, opts metav1.CreateOptions, subresources ...string) (*unstructured.Unstructured, error) {
-	return nil, fmt.Errorf("not implemented")
+	if len(subresources) != 0 {
+		return nil, fmt.Errorf("not implemented")
+	}
+	if obj == nil {
+		return nil, fmt.Errorf("nil object")
+	}
+	name := obj.GetName()
+	if name == "" {
+		return nil, fmt.Errorf("missing name")
+	}
+
+	stored := obj.DeepCopy()
+	stored.SetNamespace(r.namespace)
+	key := r.key(name)
+
+	r.client.mu.Lock()
+	defer r.client.mu.Unlock()
+	if _, exists := r.client.objects[key]; exists {
+		return nil, apierrors.NewAlreadyExists(schema.GroupResource{Group: r.gvr.Group, Resource: r.gvr.Resource}, name)
+	}
+	r.client.objects[key] = stored
+	return stored.DeepCopy(), nil
 }
 
 func (r *fakeResource) Update(ctx context.Context, obj *unstructured.Unstructured, opts metav1.UpdateOptions, subresources ...string) (*unstructured.Unstructured, error) {
@@ -147,7 +180,7 @@ func (r *fakeResource) Update(ctx context.Context, obj *unstructured.Unstructure
 	if name == "" {
 		return nil, fmt.Errorf("missing name")
 	}
-	key := namespacedName(r.namespace, name)
+	key := r.key(name)
 
 	r.client.mu.Lock()
 	defer r.client.mu.Unlock()
@@ -171,7 +204,7 @@ func (r *fakeResource) Get(ctx context.Context, name string, opts metav1.GetOpti
 	if len(subresources) != 0 {
 		return nil, fmt.Errorf("not implemented")
 	}
-	key := namespacedName(r.namespace, name)
+	key := r.key(name)
 
 	r.client.mu.RLock()
 	defer r.client.mu.RUnlock()
@@ -183,7 +216,37 @@ func (r *fakeResource) Get(ctx context.Context, name string, opts metav1.GetOpti
 }
 
 func (r *fakeResource) List(ctx context.Context, opts metav1.ListOptions) (*unstructured.UnstructuredList, error) {
-	return nil, fmt.Errorf("not implemented")
+	selector, err := labels.Parse(opts.LabelSelector)
+	if err != nil {
+		return nil, fmt.Errorf("parse label selector: %w", err)
+	}
+
+	kind := kindForResource(r.gvr.Resource)
+	prefix := objectKey(kind, r.namespace, "")
+
+	r.client.mu.RLock()
+	defer r.client.mu.RUnlock()
+
+	list := &unstructured.UnstructuredList{}
+	list.SetAPIVersion(r.gvr.GroupVersion().String())
+	list.SetKind(kind + "List")
+
+	names := make([]string, 0, len(r.client.objects))
+	for key := range r.client.objects {
+		if strings.HasPrefix(key, prefix) {
+			names = append(names, key)
+		}
+	}
+	sort.Strings(names)
+
+	for _, key := range names {
+		obj := r.client.objects[key]
+		if !selector.Matches(labels.Set(obj.GetLabels())) {
+			continue
+		}
+		list.Items = append(list.Items, *obj.DeepCopy())
+	}
+	return list, nil
 }
 
 func (r *fakeResource) Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
@@ -203,7 +266,7 @@ func (r *fakeResource) Patch(ctx context.Context, name string, pt types.PatchTyp
 		return nil, fmt.Errorf("unmarshal patch: %w", err)
 	}
 
-	key := namespacedName(r.namespace, name)
+	key := r.key(name)
 
 	r.client.mu.Lock()
 	defer r.client.mu.Unlock()
@@ -243,6 +306,16 @@ func (r *fakeResource) PatchSubresource(context.Context, string, string, types.P
 
 func namespacedName(namespace, name string) string {
 	return namespace + "/" + name
+}
+
+// key scopes a stored object to the resource type being addressed so that a
+// DocumentDB, a Backup, and a ScheduledBackup can share a name.
+func (r *fakeResource) key(name string) string {
+	return objectKey(kindForResource(r.gvr.Resource), r.namespace, name)
+}
+
+func objectKey(kind, namespace, name string) string {
+	return kind + "/" + namespacedName(namespace, name)
 }
 
 func mergeMaps(dst map[string]any, patch map[string]any) {
