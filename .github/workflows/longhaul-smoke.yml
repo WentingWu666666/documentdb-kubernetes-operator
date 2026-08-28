@@ -45,17 +45,21 @@
 #   Scale ops run for real (MIN=2, MAX=3). The gate exercises every registered
 #   operation once and finishes within a GitHub-hosted runner's budget.
 #
-# Operation coverage (random mode)
-#   The smoke runs the real random scheduler — the exact path the multi-day
-#   long-haul run uses — but in coverage mode (LONGHAUL_OPERATION_COVERAGE) with
-#   a pinned seed (LONGHAUL_OPERATION_SEED). Coverage mode draws each operation
-#   without replacement and completes once every operation has run at least once,
-#   so the gate exercises scheduler.go's weighted selection, cooldown, and
-#   steady-state gates while still guaranteeing per-op coverage and a
-#   deterministic PASS/FAIL verdict. The upgrade uses a second tag for the same
-#   database image payload: this gates the rolling-update mechanics without
-#   turning this smoke test into a cross-version compatibility suite. MAX_DURATION
-#   is only the completion watchdog.
+# Operations exercised (sequence mode)
+#   The smoke runs the operation scheduler in sequence mode
+#   (LONGHAUL_OPERATION_MODE=sequence) with an explicit ordered list
+#   (LONGHAUL_OPERATION_SEQUENCE). Each operation — scale-up, scale-down,
+#   upgrade-documentdb, kill-operator-pod, kill-primary-pod — runs exactly once,
+#   in order, gated by the same steady-state / precondition / recovery logic the
+#   long-haul run uses. This is the deterministic path that builds confidence the
+#   operations execute end-to-end; the gate asserts every sequenced operation
+#   reached PASSED and the run reached COMPLETE. The upgrade is a real
+#   cross-version rolling upgrade: the cluster starts on the most recent
+#   published release before the under-test version (0.110.0) and the
+#   upgrade-documentdb operation moves documentDBVersion forward to the
+#   under-test version (the chart's documentDbVersion), exercising the
+#   operator's rolling-update path with clean semver versions the image-rollback
+#   webhook accepts. MAX_DURATION is only the completion watchdog.
 #
 # Data-protection gate
 #   The backup verifier is exercised for real, not just compiled in. The kind
@@ -84,7 +88,7 @@ on:
   workflow_dispatch:
     inputs:
       max_duration:
-        description: "Coverage watchdog duration (Go duration, e.g. 20m). Keep >= 6m so at least one per-minute backup is scheduled and completed within the window."
+        description: "Completion watchdog duration (Go duration, e.g. 20m). Keep >= 6m so at least one per-minute backup is scheduled and completed within the window."
         required: false
         default: "20m"
 
@@ -138,10 +142,16 @@ jobs:
       # Must match the cluster name the composite action derives:
       #   documentdb-<test-type>-<architecture>-<test-scenario-name>
       KIND_CLUSTER: documentdb-longhaul-amd64-smoke
-      # Coverage watchdog; also kept beyond the 5m pruner tick and long enough
+      # Completion watchdog; also kept beyond the 5m pruner tick and long enough
       # for at least one per-minute backup to schedule and complete.
       MAX_DURATION: ${{ github.event.inputs.max_duration || '20m' }}
-      UPGRADE_IMAGE_TAG: ${{ needs.build.outputs.ext_image_tag }}-smoke-upgrade
+      # Released database version the cluster STARTS at; the upgrade operation
+      # moves it forward to the under-test version (the chart's documentDbVersion,
+      # e.g. 0.113.0). 0.110.0 is the most recent published release before it
+      # (0.111.0 / 0.112.0 were never published to the public registry).
+      DB_BASE_VERSION: "0.110.0"
+      DOCUMENTDB_REPO: ghcr.io/documentdb/documentdb-kubernetes-operator/documentdb
+      GATEWAY_REPO: ghcr.io/documentdb/documentdb-kubernetes-operator/gateway
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -189,6 +199,12 @@ jobs:
           db-port: ${{ env.GATEWAY_PORT }}
           image-tag: ${{ env.IMAGE_TAG }}
           documentdb-image-tag: ${{ env.EXT_IMAGE_TAG }}
+          # Start the cluster at the released base version so the upgrade
+          # operation performs a real cross-version rolling upgrade. These
+          # overrides make the composite action pull the released images and
+          # deploy the CR with explicit spec.image fields pinned to the base.
+          documentdb-image: ${{ env.DOCUMENTDB_REPO }}:${{ env.DB_BASE_VERSION }}
+          gateway-image: ${{ env.GATEWAY_REPO }}:${{ env.DB_BASE_VERSION }}
           chart-version: ${{ env.CHART_VERSION }}
           use-external-images: "false"
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -210,32 +226,37 @@ jobs:
             --from-literal=uri="${URI}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Prepare deterministic upgrade target
+      - name: Prepare cross-version upgrade target (0.110.0 -> under-test)
         run: |
           set -euo pipefail
           owner=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
-          source_tag="${EXT_IMAGE_TAG}-amd64"
+          candidate_tag="${EXT_IMAGE_TAG}-amd64"
+          # ext_image_tag is "<documentDbVersion>-test-<run_id>"; strip the
+          # suffix to recover the plain semver the operator resolves against.
+          target_version="${EXT_IMAGE_TAG%%-test-*}"
+          echo "Upgrade target version: ${target_version}"
 
-          # The operator resolves documentDBVersion against the canonical image
-          # repositories. Give the existing payload a second local tag so the
-          # upgrade operation performs a real rolling image-reference update
-          # without depending on a second database release.
+          # Publish the under-test candidate database images into kind under the
+          # canonical repository + plain semver tag so documentDBVersion=<target>
+          # resolves to this PR's build. In registry mode the candidate images
+          # ARE the public <target> images re-tagged, so this is the same payload
+          # a released cluster would pull.
           for component in documentdb gateway; do
-            source="ghcr.io/${owner}/documentdb-kubernetes-operator/${component}:${source_tag}"
-            base_target="ghcr.io/documentdb/documentdb-kubernetes-operator/${component}:${source_tag}"
-            upgrade_target="ghcr.io/documentdb/documentdb-kubernetes-operator/${component}:${UPGRADE_IMAGE_TAG}"
-            docker image inspect "${source}" >/dev/null
-            docker tag "${source}" "${base_target}"
-            docker tag "${source}" "${upgrade_target}"
-            kind load docker-image "${base_target}" --name "${KIND_CLUSTER}"
-            kind load docker-image "${upgrade_target}" --name "${KIND_CLUSTER}"
+            src="ghcr.io/${owner}/documentdb-kubernetes-operator/${component}:${candidate_tag}"
+            dst="ghcr.io/documentdb/documentdb-kubernetes-operator/${component}:${target_version}"
+            docker image inspect "${src}" >/dev/null
+            docker tag "${src}" "${dst}"
+            kind load docker-image "${dst}" --name "${KIND_CLUSTER}"
           done
 
-          # setup-test-environment pins explicit image fields, which take
-          # precedence over documentDBVersion. Move to the equivalent
-          # version-based reference before starting the driver so its upgrade
-          # operation can change both database component image tags.
-          version_patch=$(BASE_VERSION="${source_tag}" jq -nc '{
+          # setup-test-environment deployed the CR with explicit spec.image
+          # fields pinned to the base version, which take precedence over
+          # documentDBVersion. Convert to the equivalent version-based reference
+          # (same base payload, image cleared) so the driver's upgrade operation
+          # can move documentDBVersion from the base to the target. Because the
+          # resolved version is unchanged (base == running) the image-rollback
+          # admission webhook accepts this patch.
+          version_patch=$(BASE_VERSION="${DB_BASE_VERSION}" jq -nc '{
               spec: {
                 documentDBVersion: env.BASE_VERSION,
                 image: {
@@ -247,9 +268,12 @@ jobs:
           kubectl patch documentdb "${DB_NAME}" -n "${DB_NS}" \
             --type merge -p "${version_patch}"
 
+          # The upgrade operation reads this desired version from the ConfigMap
+          # and patches documentDBVersion to it; both base and target are clean
+          # semvers so the forward move (0.110.0 -> target) is permitted.
           kubectl create configmap longhaul-versions \
             -n "${DB_NS}" \
-            --from-literal="desired-documentdb-version=${UPGRADE_IMAGE_TAG}" \
+            --from-literal="desired-documentdb-version=${target_version}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy long-haul driver (real manifests, bounded override)
@@ -269,15 +293,14 @@ jobs:
 
           # Bounded, deterministic smoke override — patch ONLY runtime knobs on
           # the shipped ConfigMap; the manifest structure is unchanged.
-          #  - MAX_DURATION: finite run (coverage-completion watchdog)
+          #  - MAX_DURATION: finite run (completion watchdog)
           #  - RESET_DATA: fresh collection each CI run
           #  - RETAIN_PER_WRITER: low enough to force a real prune at 5m
-          #  - OPERATION_MODE=random + COVERAGE: run the real scheduler but draw
-          #    each operation without replacement and finish once every operation
-          #    (scale-up/-down, kill-operator-pod, kill-primary-pod,
-          #    upgrade-documentdb) has run once — deterministic coverage of the
-          #    production path.
-          #  - OPERATION_SEED: pin selection so the run is reproducible.
+          #  - OPERATION_MODE=sequence + OPERATION_SEQUENCE: run every operation
+          #    (scale-up, scale-down, upgrade-documentdb, kill-operator-pod,
+          #    kill-primary-pod) exactly once, in a fixed order. This is the
+          #    deterministic path that builds confidence the operations execute
+          #    end-to-end; MAX_DURATION becomes the completion watchdog.
           #  - short cadences so the verifier gets several cycles in the window
           #  - short steady-state gate with a bounded recovery budget
           #  - BACKUP_*: exercise the data-protection verifier for real — a
@@ -293,9 +316,8 @@ jobs:
               LONGHAUL_RESET_DATA: "true",
               LONGHAUL_NUM_WRITERS: "2",
               LONGHAUL_RETAIN_PER_WRITER: "100",
-              LONGHAUL_OPERATION_MODE: "random",
-              LONGHAUL_OPERATION_COVERAGE: "true",
-              LONGHAUL_OPERATION_SEED: "1",
+              LONGHAUL_OPERATION_MODE: "sequence",
+              LONGHAUL_OPERATION_SEQUENCE: "scale-up,scale-down,upgrade-documentdb,kill-operator-pod,kill-primary-pod",
               LONGHAUL_OP_COOLDOWN: "30s",
               LONGHAUL_STEADY_STATE_WAIT: "5s",
               LONGHAUL_RECOVERY_TIMEOUT: "5m",
@@ -366,12 +388,12 @@ jobs:
             -o jsonpath='{.data.latest-report}' 2>/dev/null || echo "MISSING")
           operation_status=$(kubectl get configmap longhaul-report -n "${DB_NS}" \
             -o json | jq -r '.data["operation-status"] // "MISSING"')
-          operation_aggregates=$(kubectl get configmap longhaul-report -n "${DB_NS}" \
-            -o json | jq -r '.data["operation-aggregates"] // "MISSING"')
-          echo "Driver exit code    : ${exit_code}"
-          echo "Report result       : ${result}"
-          echo "Operation status    : ${operation_status}"
-          echo "Operation aggregates: ${operation_aggregates}"
+          operation_results=$(kubectl get configmap longhaul-report -n "${DB_NS}" \
+            -o json | jq -r '.data["operation-results"] // "MISSING"')
+          echo "Driver exit code : ${exit_code}"
+          echo "Report result    : ${result}"
+          echo "Operation status : ${operation_status}"
+          echo "Operation results: ${operation_results}"
 
           if [[ "${exit_code}" != "0" ]]; then
             echo "::error::Driver exited non-zero (${exit_code})."
@@ -385,21 +407,20 @@ jobs:
             echo "::error::operation-status is '${operation_status}', expected COMPLETE."
             exit 1
           fi
-          # Coverage mode: assert every registered operation ran at least once
-          # (passed >= 1) and none failed. Order is not asserted — coverage,
-          # not sequence, is the guarantee.
+          # Sequence mode: assert every operation in the configured sequence ran
+          # and passed. Order is fixed by LONGHAUL_OPERATION_SEQUENCE above.
           if ! jq -e '
-            (map(.name) | sort) == (["scale-up","scale-down","kill-operator-pod","kill-primary-pod","upgrade-documentdb"] | sort) and
-            all(.[]; .passed >= 1 and .failed == 0)
-          ' <<<"${operation_aggregates}" >/dev/null; then
-            echo "::error::operation-aggregates did not show every operation covered (passed>=1, failed==0)."
+            (map(.name)) == ["scale-up","scale-down","upgrade-documentdb","kill-operator-pod","kill-primary-pod"] and
+            all(.[]; .status == "PASSED")
+          ' <<<"${operation_results}" >/dev/null; then
+            echo "::error::operation-results did not show every sequenced operation PASSED in order."
             exit 1
           fi
           if ! grep -Eq 'pruner: pruned [1-9][0-9]* docs' <<<"${report}"; then
             echo "::error::Retention pruner did not report deleting any documents."
             exit 1
           fi
-          echo "✅ Long-haul smoke gate passed (random coverage COMPLETE, all operations covered, report PASS, retention pruned documents)."
+          echo "✅ Long-haul smoke gate passed (sequence COMPLETE, all operations PASSED, report PASS, retention pruned documents)."
 
       - name: Assert data-protection verifier ran
         run: |

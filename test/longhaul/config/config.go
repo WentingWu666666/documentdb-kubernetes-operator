@@ -30,13 +30,6 @@ const (
 	EnvSteadyStateWait = "LONGHAUL_STEADY_STATE_WAIT"
 	EnvOperationMode   = "LONGHAUL_OPERATION_MODE"
 	EnvOperationSeq    = "LONGHAUL_OPERATION_SEQUENCE"
-	// EnvOperationCoverage enables coverage mode for random operation mode: the
-	// scheduler draws each operation without replacement and completes once every
-	// operation has run at least once (instead of running until MaxDuration).
-	EnvOperationCoverage = "LONGHAUL_OPERATION_COVERAGE"
-	// EnvOperationSeed pins the scheduler's weighted-random selection to a fixed
-	// seed so a random-mode run is reproducible. Only valid in random mode.
-	EnvOperationSeed = "LONGHAUL_OPERATION_SEED"
 	// Scale operation bounds. The DocumentDB CRD hard-caps spec.nodeCount=1,
 	// so the scale dimension actually exercised is spec.instancesPerNode (1-3).
 	EnvMinInstances = "LONGHAUL_MIN_INSTANCES"
@@ -108,18 +101,6 @@ type Config struct {
 
 	// OperationSequence is the ordered list used only in sequence mode.
 	OperationSequence []string
-
-	// OperationCoverage, valid only in random mode, makes the scheduler draw each
-	// operation without replacement and finish once every operation has run at
-	// least once. This gates the real scheduler path while guaranteeing per-op
-	// coverage for the smoke gate; MaxDuration becomes a watchdog.
-	OperationCoverage bool
-
-	// OperationSeed pins weighted-random selection for reproducibility. Only used
-	// in random mode. OperationSeedSet distinguishes an explicit 0 from "unset"
-	// (unset uses the process-global generator, i.e. production behavior).
-	OperationSeed    int64
-	OperationSeedSet bool
 
 	// MinInstances is the minimum spec.instancesPerNode for scale-down.
 	// CRD lower bound is 1.
@@ -258,19 +239,6 @@ func LoadFromEnv() (Config, error) {
 		cfg.OperationSequence = sequence
 	}
 
-	if v := strings.TrimSpace(strings.ToLower(os.Getenv(EnvOperationCoverage))); v != "" {
-		cfg.OperationCoverage = v == "true" || v == "1" || v == "yes"
-	}
-
-	if v := strings.TrimSpace(os.Getenv(EnvOperationSeed)); v != "" {
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvOperationSeed, v, err)
-		}
-		cfg.OperationSeed = n
-		cfg.OperationSeedSet = true
-	}
-
 	if v := os.Getenv(EnvMinInstances); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
@@ -376,14 +344,6 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("operation mode must be one of %q, %q, or %q, got %q",
 			OperationModeRandom, OperationModeSequence, OperationModeDisabled, c.OperationMode)
-	}
-	if c.OperationCoverage && c.OperationMode != OperationModeRandom {
-		return fmt.Errorf("operation coverage is only supported in %q mode, got %q",
-			OperationModeRandom, c.OperationMode)
-	}
-	if c.OperationSeedSet && c.OperationMode != OperationModeRandom {
-		return fmt.Errorf("operation seed is only supported in %q mode, got %q",
-			OperationModeRandom, c.OperationMode)
 	}
 	if c.MinInstances < 1 {
 		return fmt.Errorf("min instances must be at least 1, got %d", c.MinInstances)

@@ -109,15 +109,14 @@ one mutable `PENDING`/`RUNNING`/`PASSED`/`FAILED` result per requested item.
 Execution errors, precondition timeouts, outage-policy violations, and an
 incomplete sequence at shutdown all produce a failing final verdict.
 
-**Random coverage mode** (used by the PR smoke gate) is a variant of random
-mode: the scheduler draws each operation *without replacement* and completes
-once every registered operation has run at least once, rather than running for
-the full duration. A fixed seed (`LONGHAUL_OPERATION_SEED`) makes selection
-reproducible. This lets the smoke gate exercise the production scheduler path —
-weighted selection, cooldown, and steady-state gates — while guaranteeing per-op
-coverage and a deterministic PASS/FAIL verdict; `MAX_DURATION` becomes the
-completion watchdog, and a run that stops before covering every operation is a
-failing `INCOMPLETE` verdict.
+**Sequence mode** (used by the PR smoke gate) runs the registered operations in
+an explicit, fixed order (`LONGHAUL_OPERATION_SEQUENCE`), executing each exactly
+once behind the same steady-state / precondition / recovery gates as random
+mode, rather than selecting operations by weight for the full duration. This
+gives the smoke gate a deterministic PASS/FAIL verdict — every sequenced
+operation must reach `PASSED` and the run must reach `COMPLETE`; `MAX_DURATION`
+becomes the completion watchdog, and a sequence that has not finished at shutdown
+is a failing `INCOMPLETE` verdict.
 
 ---
 

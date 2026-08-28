@@ -193,11 +193,10 @@ func run(cfg config.Config) int {
 
 	j.Info("main", "all components started, entering main loop")
 
-	// Sequence mode and random coverage mode are completion-driven: they exit as
-	// soon as their operations have finished (or a failure occurs); MaxDuration
-	// is only their watchdog. Plain random and disabled modes are duration-driven.
-	completionDriven := cfg.OperationMode == config.OperationModeSequence ||
-		(cfg.OperationMode == config.OperationModeRandom && cfg.OperationCoverage)
+	// Sequence mode is completion-driven: it exits as soon as its operations
+	// have finished (or a failure occurs); MaxDuration is only its watchdog.
+	// Random and disabled modes are duration-driven.
+	completionDriven := cfg.OperationMode == config.OperationModeSequence
 	if completionDriven {
 		select {
 		case <-opRunner.Done():
@@ -209,8 +208,6 @@ func run(cfg config.Config) int {
 					fmt.Sprintf("operation sequence incomplete: watchdog fired: %v", ctx.Err()),
 				)
 			}
-			// Coverage runners publish their own terminal (incomplete) snapshot
-			// once cancellation unwinds their loop; wait for that to land.
 			<-opRunner.Done()
 		}
 	} else {
@@ -245,14 +242,7 @@ func newOperationRunner(
 ) (operations.Runner, error) {
 	switch cfg.OperationMode {
 	case config.OperationModeRandom:
-		opts := make([]operations.SchedulerOption, 0, 2)
-		if cfg.OperationCoverage {
-			opts = append(opts, operations.WithCoverage())
-		}
-		if cfg.OperationSeedSet {
-			opts = append(opts, operations.WithSeed(cfg.OperationSeed))
-		}
-		return operations.NewScheduler(registry.All(), health, j, cfg.OpCooldown, opts...), nil
+		return operations.NewScheduler(registry.All(), health, j, cfg.OpCooldown), nil
 	case config.OperationModeSequence:
 		ops, err := registry.Resolve(cfg.OperationSequence)
 		if err != nil {

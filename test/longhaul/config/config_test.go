@@ -40,7 +40,6 @@ var _ = Describe("Config", func() {
 				EnvDocumentDBURI, EnvNumWriters,
 				EnvOpCooldown, EnvRecoveryTimeout, EnvSteadyStateWait,
 				EnvOperationMode, EnvOperationSeq,
-				EnvOperationCoverage, EnvOperationSeed,
 				EnvMinInstances, EnvMaxInstances, EnvReportInterval,
 				EnvBackupEnabled, EnvBackupSchedule, EnvBackupRetentionDays,
 				EnvBackupVerifyInterval,
@@ -142,29 +141,6 @@ var _ = Describe("Config", func() {
 			_, err := LoadFromEnv()
 			Expect(err).To(MatchError(ContainSubstring("operation names must not be empty")))
 		})
-
-		It("parses operation coverage and seed in random mode", func() {
-			GinkgoT().Setenv(EnvOperationMode, "random")
-			GinkgoT().Setenv(EnvOperationCoverage, "true")
-			GinkgoT().Setenv(EnvOperationSeed, "-7")
-			cfg, err := LoadFromEnv()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfg.OperationCoverage).To(BeTrue())
-			Expect(cfg.OperationSeed).To(Equal(int64(-7)))
-			Expect(cfg.OperationSeedSet).To(BeTrue())
-		})
-
-		It("leaves OperationSeedSet false when the seed env is unset", func() {
-			cfg, err := LoadFromEnv()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfg.OperationSeedSet).To(BeFalse())
-		})
-
-		It("returns error for an invalid operation seed", func() {
-			GinkgoT().Setenv(EnvOperationSeed, "not-a-number")
-			_, err := LoadFromEnv()
-			Expect(err).To(MatchError(ContainSubstring(EnvOperationSeed)))
-		})
 	})
 
 	Describe("Validate", func() {
@@ -247,40 +223,6 @@ var _ = Describe("Config", func() {
 			Entry("random", OperationModeRandom),
 			Entry("disabled", OperationModeDisabled),
 		)
-
-		It("accepts coverage and seed in random mode", func() {
-			cfg := DefaultConfig()
-			cfg.ClusterName = "test"
-			cfg.OperationMode = OperationModeRandom
-			cfg.OperationCoverage = true
-			cfg.OperationSeed = 99
-			cfg.OperationSeedSet = true
-			Expect(cfg.Validate()).To(Succeed())
-		})
-
-		DescribeTable("rejects coverage outside random mode",
-			func(mode OperationMode) {
-				cfg := DefaultConfig()
-				cfg.ClusterName = "test"
-				cfg.OperationMode = mode
-				if mode == OperationModeSequence {
-					cfg.OperationSequence = []string{"scale-up"}
-				}
-				cfg.OperationCoverage = true
-				Expect(cfg.Validate()).To(MatchError(ContainSubstring("operation coverage is only supported")))
-			},
-			Entry("sequence", OperationModeSequence),
-			Entry("disabled", OperationModeDisabled),
-		)
-
-		It("rejects a seed outside random mode", func() {
-			cfg := DefaultConfig()
-			cfg.ClusterName = "test"
-			cfg.OperationMode = OperationModeSequence
-			cfg.OperationSequence = []string{"scale-up"}
-			cfg.OperationSeedSet = true
-			Expect(cfg.Validate()).To(MatchError(ContainSubstring("operation seed is only supported")))
-		})
 
 		It("accepts a valid sequence configuration", func() {
 			cfg := DefaultConfig()

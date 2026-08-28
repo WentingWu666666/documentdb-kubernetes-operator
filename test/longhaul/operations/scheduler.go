@@ -43,13 +43,6 @@ type Scheduler struct {
 	journal       *journal.Journal
 	cooldown      time.Duration
 
-	// rng, when non-nil, pins weighted-random selection for reproducibility.
-	// When nil the process-global generator is used (production behavior).
-	rng *rand.Rand
-	// coverage draws each operation without replacement and completes the run
-	// once every operation has run at least once.
-	coverage bool
-
 	mu          sync.Mutex
 	lastOpTime  time.Time
 	opsExecuted int
@@ -59,31 +52,12 @@ type Scheduler struct {
 	aggregateIndex map[string]int
 }
 
-// SchedulerOption configures optional Scheduler behavior.
-type SchedulerOption func(*Scheduler)
-
-// WithSeed pins weighted-random selection to a fixed seed so the run is
-// reproducible. Without it the scheduler uses the process-global generator.
-func WithSeed(seed int64) SchedulerOption {
-	return func(s *Scheduler) {
-		s.rng = rand.New(rand.NewPCG(uint64(seed), uint64(seed)))
-	}
-}
-
-// WithCoverage enables coverage mode: the scheduler draws each operation
-// without replacement and completes once every operation has run at least once,
-// rather than running until context cancellation.
-func WithCoverage() SchedulerOption {
-	return func(s *Scheduler) { s.coverage = true }
-}
-
 // NewScheduler creates an operation scheduler.
 func NewScheduler(
 	ops []Operation,
 	health *monitor.HealthMonitor,
 	j *journal.Journal,
 	cooldown time.Duration,
-	opts ...SchedulerOption,
 ) *Scheduler {
 	aggregates := make([]OperationAggregate, 0, len(ops))
 	aggregateIndex := make(map[string]int, len(ops))
@@ -94,7 +68,7 @@ func NewScheduler(
 		aggregateIndex[op.Name()] = len(aggregates)
 		aggregates = append(aggregates, OperationAggregate{Name: op.Name()})
 	}
-	s := &Scheduler{
+	return &Scheduler{
 		operations:    ops,
 		healthMonitor: health,
 		journal:       j,
@@ -106,19 +80,6 @@ func NewScheduler(
 		}),
 		aggregateIndex: aggregateIndex,
 	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
-}
-
-// intn returns a non-negative pseudo-random int in [0,n) from the scheduler's
-// seeded generator when present, otherwise the process-global generator.
-func (s *Scheduler) intn(n int) int {
-	if s.rng != nil {
-		return s.rng.IntN(n)
-	}
-	return rand.IntN(n)
 }
 
 // Run starts the scheduler loop. It blocks until context is cancelled.
@@ -130,16 +91,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 	defer func() {
 		s.state.mu.Lock()
 		if s.state.snapshot.Status == RunStatusRunning {
-			// Coverage runs that stop before covering every operation (watchdog
-			// or shutdown) are terminally incomplete, not complete.
-			if s.coverage && !s.allCoveredLocked() {
-				s.state.snapshot.Status = RunStatusIncomplete
-				if s.state.snapshot.FailureReason == "" {
-					s.state.snapshot.FailureReason = "operation coverage incomplete: run stopped before every operation ran"
-				}
-			} else {
-				s.state.snapshot.Status = RunStatusComplete
-			}
+			s.state.snapshot.Status = RunStatusComplete
 		}
 		s.state.mu.Unlock()
 		s.state.closeDone()
@@ -155,49 +107,8 @@ func (s *Scheduler) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.tryExecute(ctx)
-			// Coverage mode is completion-driven: stop as soon as the run
-			// reaches a terminal state (all operations covered, or a failure).
-			if s.coverage && s.coverageTerminalReached() {
-				return
-			}
 		}
 	}
-}
-
-// coverageTerminalReached reports whether a coverage run has reached a terminal
-// state and its loop should return.
-func (s *Scheduler) coverageTerminalReached() bool {
-	s.state.mu.RLock()
-	defer s.state.mu.RUnlock()
-	return s.state.snapshot.Status == RunStatusComplete ||
-		s.state.snapshot.Status == RunStatusFailed
-}
-
-// allCoveredLocked reports whether every registered operation has run at least
-// once. Callers must hold s.state.mu.
-func (s *Scheduler) allCoveredLocked() bool {
-	if len(s.state.snapshot.Aggregates) == 0 {
-		return false
-	}
-	for _, a := range s.state.snapshot.Aggregates {
-		if a.Passed+a.Failed == 0 {
-			return false
-		}
-	}
-	return true
-}
-
-// coveredSet returns the set of operation names that have run at least once.
-func (s *Scheduler) coveredSet() map[string]bool {
-	s.state.mu.RLock()
-	defer s.state.mu.RUnlock()
-	covered := make(map[string]bool, len(s.state.snapshot.Aggregates))
-	for _, a := range s.state.snapshot.Aggregates {
-		if a.Passed+a.Failed > 0 {
-			covered[a.Name] = true
-		}
-	}
-	return covered
 }
 
 func (s *Scheduler) tryExecute(ctx context.Context) {
@@ -242,13 +153,6 @@ func (s *Scheduler) tryExecute(ctx context.Context) {
 }
 
 func (s *Scheduler) selectOperation(ctx context.Context) Operation {
-	// In coverage mode, exclude operations that have already run so each is
-	// drawn without replacement until every operation has been covered.
-	var covered map[string]bool
-	if s.coverage {
-		covered = s.coveredSet()
-	}
-
 	// Filter by preconditions and build weighted list.
 	type candidate struct {
 		op     Operation
@@ -258,9 +162,6 @@ func (s *Scheduler) selectOperation(ctx context.Context) Operation {
 	totalWeight := 0
 
 	for _, op := range s.operations {
-		if s.coverage && covered[op.Name()] {
-			continue
-		}
 		ok, _ := op.Precondition(ctx)
 		if ok {
 			w := op.Weight()
@@ -274,7 +175,7 @@ func (s *Scheduler) selectOperation(ctx context.Context) Operation {
 	}
 
 	// Weighted random selection.
-	r := s.intn(totalWeight)
+	r := rand.IntN(totalWeight)
 	for _, c := range candidates {
 		r -= c.weight
 		if r < 0 {
@@ -326,10 +227,6 @@ func (s *Scheduler) recordExecution(name string, err error) {
 		return
 	}
 	s.state.snapshot.Aggregates[index].Passed++
-	// Coverage mode completes once every operation has run at least once.
-	if s.coverage && s.state.snapshot.Status == RunStatusRunning && s.allCoveredLocked() {
-		s.state.snapshot.Status = RunStatusComplete
-	}
 }
 
 // OpsExecuted returns the number of operations completed.
