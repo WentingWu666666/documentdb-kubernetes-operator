@@ -301,6 +301,17 @@ runs:
         echo "Resolved DocumentDB image: $DOCDB_IMAGE"
         echo "Resolved Gateway image: $GW_IMAGE"
 
+    - name: Log in to GHCR for override image pulls (local build)
+      if: inputs.use-external-images == 'false' && (inputs.documentdb-image != '' || inputs.gateway-image != '')
+      shell: bash
+      env:
+        GHCR_TOKEN: ${{ inputs.github-token }}
+      run: |
+        # Override candidate images may be private packages on the same
+        # owner (e.g. a fork). Authenticate so the subsequent docker pull
+        # in the load step can access them; public images are unaffected.
+        echo "$GHCR_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
     - name: Load Docker images into kind cluster (local build)
       if: inputs.use-external-images == 'false'
       shell: bash

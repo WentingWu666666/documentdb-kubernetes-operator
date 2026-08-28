@@ -56,6 +56,16 @@ on:
         required: false
         type: string
         default: ''
+      documentdb_image:
+        description: 'Full ref of a candidate documentdb (extension) image to test instead of the source-built one'
+        required: false
+        type: string
+        default: ''
+      gateway_image:
+        description: 'Full ref of a candidate gateway image to test instead of the source-built one'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -272,6 +282,8 @@ jobs:
           db-port: ${{ env.DB_PORT }}
           image-tag: ${{ env.IMAGE_TAG }}
           documentdb-image-tag: ${{ env.EXT_IMAGE_TAG }}
+          documentdb-image: ${{ inputs.documentdb_image || '' }}
+          gateway-image: ${{ inputs.gateway_image || '' }}
           chart-version: ${{ env.CHART_VERSION }}
           use-external-images: 'false'
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -429,6 +441,8 @@ jobs:
           db-port: ${{ env.DB_PORT }}
           image-tag: ${{ env.IMAGE_TAG }}
           documentdb-image-tag: ${{ env.EXT_IMAGE_TAG }}
+          documentdb-image: ${{ inputs.documentdb_image || '' }}
+          gateway-image: ${{ inputs.gateway_image || '' }}
           chart-version: ${{ env.CHART_VERSION }}
           use-external-images: 'false'
           kubernetes-version: ${{ matrix.kubernetes_version }}
@@ -514,6 +528,8 @@ jobs:
           db-port: ${{ env.DB_PORT }}
           image-tag: ${{ env.IMAGE_TAG }}
           documentdb-image-tag: ${{ env.EXT_IMAGE_TAG }}
+          documentdb-image: ${{ inputs.documentdb_image || '' }}
+          gateway-image: ${{ inputs.gateway_image || '' }}
           chart-version: ${{ env.CHART_VERSION }}
           use-external-images: 'false'
           kubernetes-version: v1.33.7
