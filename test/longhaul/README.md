@@ -130,7 +130,7 @@ All configuration is via environment variables.
 | `LONGHAUL_NUM_WRITERS` | No | `5` | Number of concurrent writers. |
 | `LONGHAUL_OPERATION_MODE` | No | `random` | Operation runner: `random`, `sequence`, or `disabled`. |
 | `LONGHAUL_OPERATION_SEQUENCE` | No | empty | Comma-separated stable operation names. Required and used only in `sequence` mode; rejected in `random`/`disabled` mode. Whitespace is trimmed, and duplicate or unknown names are rejected. |
-| `LONGHAUL_OP_COOLDOWN` | No | `5m` | Cooldown between management operations. |
+| `LONGHAUL_OP_COOLDOWN` | No | `5m` | Minimum spacing between operations. Random mode only — `sequence` mode paces ops by the steady-state/recovery gates. |
 | `LONGHAUL_RECOVERY_TIMEOUT` | No | `5m` | Max wait for cluster recovery after an operation. |
 | `LONGHAUL_STEADY_STATE_WAIT` | No | `60s` | Continuous healthy duration required by the steady-state gate. |
 | `LONGHAUL_MIN_INSTANCES` | No | `1` | Minimum `spec.instancesPerNode` for scale-down operations (CRD lower bound: 1). |
@@ -206,44 +206,34 @@ Current stable operation names:
 | `kill-primary-pod` | Chaos | Deletes the CNPG primary pod to exercise automatic failover; requires HA (`instancesPerNode>=2`). |
 
 Operations that keep the write path up throughout — the scale ops and
-`kill-operator-pod` — share the near-zero `journal.NoOutagePolicy` budget instead
-of ad-hoc per-op numbers, so a regression that unexpectedly disrupts writes
-during a "safe" operation trips the policy.
-
-Outage budgets are expressed as **wall-clock write-outage durations**
-(`OutagePolicy.MaxWriteOutage`), not raw write-failure counts. The journal
-converts the observed failure count into an estimated outage using the workload's
-aggregate write rate (`workload.AggregateWriteRate(NumWriters)`), so the budgets
-are independent of `LONGHAUL_NUM_WRITERS`: `NoOutagePolicy` ≈ 300ms (noise
-cushion), `kill-primary-pod` uses the `journal.PrimaryHandoverPolicy` budget of
-30s (an ungraceful single-primary failover), and `upgrade-documentdb` uses the
-larger `journal.UpgradeOutagePolicy` budget (90s): a cross-version rolling
-upgrade interrupts writes for a single primary switchover too, but that
-switchover is heavier than a plain failover because it coincides with the
-extension version migration under live write load. In all cases the longer
-whole-topology restart is bounded by `MustRecoverWithin`, not the write-outage
-budget.
+`kill-operator-pod` — are held to a near-zero write-outage budget, so a
+regression that unexpectedly disrupts writes during a "safe" operation is
+caught. `kill-primary-pod` tolerates a short outage for a single failover
+(~30s), and `upgrade-documentdb` tolerates a larger one (~90s) because a
+cross-version rolling upgrade's primary switchover coincides with the extension
+migration under live write load. Budgets are wall-clock write-outage durations
+and are independent of `LONGHAUL_NUM_WRITERS`; the longer whole-topology restart
+is bounded separately by the recovery timeout. See the
+[design document](../../docs/designs/long-haul-test-design.md) for the exact
+policies and rationale.
 
 Operation execution failures are terminal verdict failures in both `random` and
-`sequence` modes. Reports keep bounded operation state: one mutable result per
-requested sequence item, or aggregate passed/failed counters per operation name
-in random mode. The `longhaul-report` ConfigMap exposes `operation-status`,
-`operation-results` JSON, and random-mode `operation-aggregates` JSON alongside
-the existing `result` and `latest-report` fields.
+`sequence` modes. The `longhaul-report` ConfigMap exposes `operation-status`,
+`operation-results` JSON (one result per sequenced operation), and, in random
+mode, `operation-aggregates` JSON (passed/failed counts per operation),
+alongside the `result` and `latest-report` fields.
 
 ### RBAC for chaos operations
 
-Beyond the base RBAC the driver already needs, the chaos operations require the
-driver ServiceAccount to be granted (all present in `deploy/rbac.yaml`):
-
-- **`kill-primary-pod`** — `get`/`list` on `clusters.postgresql.cnpg.io` (to read
-  `status.currentPrimary`) and `delete` on `pods` in the cluster namespace; both
-  added to the `longhaul-test` Role.
-- **`kill-operator-pod`** — `get` on `deployments` and `get`/`list`/`delete` on
-  `pods` in the operator namespace (`LONGHAUL_OPERATOR_NAMESPACE`, default
-  `documentdb-operator`); granted by a separate `longhaul-test-operator`
-  Role/RoleBinding in that namespace, since the operator runs outside the
-  driver's own namespace.
+`deploy/rbac.yaml` already grants everything the driver ServiceAccount needs, so
+`kubectl apply -f deploy/rbac.yaml` is all that's required. The one non-obvious
+part: the chaos operations delete pods, and `kill-operator-pod` deletes the
+operator pod in the **operator's** namespace — not the driver's. That
+cross-namespace access is granted by a separate Role/RoleBinding scoped to
+`LONGHAUL_OPERATOR_NAMESPACE` (default `documentdb-operator`). If your operator
+runs in a different namespace, set that variable and update the binding to
+match. (`kill-primary-pod` stays within the cluster namespace and needs no extra
+setup.)
 
 ## CI Safety
 
@@ -261,9 +251,10 @@ scale up, scale down, upgrade DocumentDB, kill the operator pod, and kill the
 primary pod. Each runs behind the same steady-state / precondition / recovery
 logic the multi-day run uses, and the gate asserts every sequenced operation
 reached `PASSED` and the run reached `COMPLETE` — a deterministic verdict that
-builds confidence the operations execute end-to-end. The upgrade gives the
-existing database images a second local tag, exercising the rolling-update
-mechanics without conflating this gate with cross-version compatibility testing.
+builds confidence the operations execute end-to-end. The upgrade is a real
+cross-version upgrade: the cluster starts on the most recent published release
+before the under-test version and `upgrade-documentdb` moves it forward to the
+under-test version, exercising the operator's rolling-update path.
 
 The config unit tests (`test/longhaul/config/`) run unconditionally and are included in normal
 CI test runs — they are fast (~0.002s) and require no cluster.
