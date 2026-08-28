@@ -16,10 +16,10 @@
 #   The operator + sidecar are built from THIS PR's source (via the shared
 #   test-build-and-package.yml reusable workflow) so a code change that breaks
 #   the operator is caught. The documentdb + gateway (database) images are NOT
-#   rebuilt: test-build-and-package.yml probes the public registry for the
-#   pinned documentDbVersion and, when present, runs in "registry mode" and
-#   simply re-tags the public images into the build artifact. The long-haul
-#   driver image is the only extra image this workflow builds.
+#   built at all: the smoke exercises an upgrade between two published database
+#   releases, pulling both the 0.110.0 base and the under-test target straight
+#   from the public registry. The long-haul driver image is the only extra
+#   image this workflow builds.
 #
 # Environment bring-up is delegated to the shared composite action
 #   .github/actions/setup-test-environment
@@ -116,8 +116,9 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Build operator + sidecar from this PR's source; reuse public documentdb /
-  # gateway images (registry mode) so the database images are NOT rebuilt.
+  # Build operator + sidecar from this PR's source; the database (documentdb /
+  # gateway) images are NOT built or used from the artifact — the smoke pulls
+  # the released base and upgrade-target database images directly.
   # Produces the platform-images tar + helm chart artifacts the setup action
   # loads into kind.
   # ---------------------------------------------------------------------------
@@ -229,24 +230,23 @@ jobs:
       - name: Prepare cross-version upgrade target (0.110.0 -> under-test)
         run: |
           set -euo pipefail
-          owner=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
-          candidate_tag="${EXT_IMAGE_TAG}-amd64"
           # ext_image_tag is "<documentDbVersion>-test-<run_id>"; strip the
-          # suffix to recover the plain semver the operator resolves against.
+          # suffix to recover the plain semver the upgrade moves to. This equals
+          # the chart's documentDbVersion (the under-test database release).
           target_version="${EXT_IMAGE_TAG%%-test-*}"
           echo "Upgrade target version: ${target_version}"
 
-          # Publish the under-test candidate database images into kind under the
-          # canonical repository + plain semver tag so documentDBVersion=<target>
-          # resolves to this PR's build. In registry mode the candidate images
-          # ARE the public <target> images re-tagged, so this is the same payload
-          # a released cluster would pull.
+          # Pull the RELEASED under-test database images straight from the public
+          # registry and load them into kind under their canonical repo + semver
+          # tag, so documentDBVersion=<target> resolves to the real release. The
+          # smoke builds no database image: it upgrades between two published
+          # releases (0.110.0 -> <target>), so the upgrade target is pulled here
+          # exactly like the 0.110.0 base override rather than re-tagged from the
+          # build artifact.
           for component in documentdb gateway; do
-            src="ghcr.io/${owner}/documentdb-kubernetes-operator/${component}:${candidate_tag}"
-            dst="ghcr.io/documentdb/documentdb-kubernetes-operator/${component}:${target_version}"
-            docker image inspect "${src}" >/dev/null
-            docker tag "${src}" "${dst}"
-            kind load docker-image "${dst}" --name "${KIND_CLUSTER}"
+            img="ghcr.io/documentdb/documentdb-kubernetes-operator/${component}:${target_version}"
+            docker pull "${img}"
+            kind load docker-image "${img}" --name "${KIND_CLUSTER}"
           done
 
           # setup-test-environment deployed the CR with explicit spec.image
