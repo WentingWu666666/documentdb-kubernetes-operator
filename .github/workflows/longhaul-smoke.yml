@@ -302,7 +302,9 @@ jobs:
           #    deterministic path that builds confidence the operations execute
           #    end-to-end; MAX_DURATION becomes the completion watchdog.
           #  - short cadences so the verifier gets several cycles in the window
-          #  - short steady-state gate with a bounded recovery budget
+          #  - short steady-state gate with a bounded recovery budget. Sequence
+          #    mode paces ops purely by the steady-state/recovery gates, so
+          #    LONGHAUL_OP_COOLDOWN (a random-mode-only rate limiter) is omitted.
           #  - BACKUP_*: exercise the data-protection verifier for real — a
           #    per-minute schedule so at least one backup is scheduled and
           #    completed within the bounded window, plus a 30s verify interval
@@ -318,7 +320,6 @@ jobs:
               LONGHAUL_RETAIN_PER_WRITER: "100",
               LONGHAUL_OPERATION_MODE: "sequence",
               LONGHAUL_OPERATION_SEQUENCE: "scale-up,scale-down,upgrade-documentdb,kill-operator-pod,kill-primary-pod",
-              LONGHAUL_OP_COOLDOWN: "30s",
               LONGHAUL_STEADY_STATE_WAIT: "5s",
               LONGHAUL_RECOVERY_TIMEOUT: "5m",
               LONGHAUL_REPORT_INTERVAL: "30s",
