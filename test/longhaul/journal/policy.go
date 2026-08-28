@@ -61,17 +61,9 @@ func NoOutagePolicy(recovery time.Duration) OutagePolicy {
 	}
 }
 
-// PrimaryHandoverWriteOutage is the write-outage budget for operations that
-// interrupt writes for exactly one primary handover. It is shared so the two
-// such operations cannot drift apart:
-//   - kill-primary-pod — an *ungraceful* failover (detect the lost pod, then
-//     promote a standby), and
-//   - upgrade-documentdb — a *graceful* switchover of the primary; the standby
-//     pod restarts during the rolling upgrade do NOT interrupt writes, so the
-//     write outage is just the one switchover (and a graceful switchover is
-//     typically no worse than an ungraceful failover, which pays a detection
-//     delay). The upgrade's longer, whole-topology restart is bounded by
-//     MustRecoverWithin, not here.
+// PrimaryHandoverWriteOutage is the write-outage budget for kill-primary-pod:
+// an *ungraceful* failover that detects the lost pod, then promotes a standby.
+// The write path is interrupted for exactly one primary handover.
 //
 // Sized to comfortably cover a healthy single CNPG failover; heuristic pending
 // calibration against real long-haul runs.
@@ -85,6 +77,29 @@ const PrimaryHandoverWriteOutage = 30 * time.Second
 func PrimaryHandoverPolicy(recovery time.Duration) OutagePolicy {
 	return OutagePolicy{
 		MaxWriteOutage:    PrimaryHandoverWriteOutage,
+		MustRecoverWithin: recovery,
+	}
+}
+
+// UpgradeWriteOutage is the write-outage budget for upgrade-documentdb. A
+// cross-version rolling upgrade still interrupts writes for a single primary
+// switchover (the standby restarts do NOT interrupt writes), but that
+// switchover is heavier than a plain failover: it coincides with the extension
+// version migration running under live write load, and the newly promoted
+// primary must come up on the new image before it accepts writes. Calibrated
+// against a real 0.110.0 -> 0.113.0 upgrade on a resource-constrained kind
+// runner, which measured a ~33s switchover outage; the budget carries headroom
+// over that so genuine cross-version upgrades are not flagged while a gross
+// regression (a multi-minute write stall) still is. The upgrade's longer,
+// whole-topology restart is bounded separately by MustRecoverWithin.
+const UpgradeWriteOutage = 90 * time.Second
+
+// UpgradeOutagePolicy is the outage budget for a cross-version DocumentDB
+// upgrade (see UpgradeWriteOutage). recovery bounds how long the whole-topology
+// rolling restart may take to return to full topology.
+func UpgradeOutagePolicy(recovery time.Duration) OutagePolicy {
+	return OutagePolicy{
+		MaxWriteOutage:    UpgradeWriteOutage,
 		MustRecoverWithin: recovery,
 	}
 }

@@ -215,11 +215,14 @@ Outage budgets are expressed as **wall-clock write-outage durations**
 converts the observed failure count into an estimated outage using the workload's
 aggregate write rate (`workload.AggregateWriteRate(NumWriters)`), so the budgets
 are independent of `LONGHAUL_NUM_WRITERS`: `NoOutagePolicy` ≈ 300ms (noise
-cushion), while `kill-primary-pod` and `upgrade-documentdb` share the
-`journal.PrimaryHandoverPolicy` budget of 30s — both interrupt writes for a
-single primary handover (an ungraceful failover vs. a graceful switchover), and
-an upgrade's longer whole-topology restart is bounded by `MustRecoverWithin`,
-not the write-outage budget.
+cushion), `kill-primary-pod` uses the `journal.PrimaryHandoverPolicy` budget of
+30s (an ungraceful single-primary failover), and `upgrade-documentdb` uses the
+larger `journal.UpgradeOutagePolicy` budget (90s): a cross-version rolling
+upgrade interrupts writes for a single primary switchover too, but that
+switchover is heavier than a plain failover because it coincides with the
+extension version migration under live write load. In all cases the longer
+whole-topology restart is bounded by `MustRecoverWithin`, not the write-outage
+budget.
 
 Operation execution failures are terminal verdict failures in both `random` and
 `sequence` modes. Reports keep bounded operation state: one mutable result per

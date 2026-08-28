@@ -23,10 +23,10 @@ var _ = Describe("UpgradeDocumentDB", func() {
 		Expect(u.Weight()).To(Equal(1))
 	})
 
-	It("OutagePolicy shares the single-primary-handover budget with kill-primary", func() {
+	It("OutagePolicy uses the dedicated cross-version upgrade write-outage budget", func() {
 		u := NewUpgradeDocumentDB(&fakeClient{}, fake.NewSimpleClientset(), nil, nil, "ns", 10*time.Minute)
 		p := u.OutagePolicy()
-		Expect(p.MaxWriteOutage).To(Equal(journal.PrimaryHandoverWriteOutage))
+		Expect(p.MaxWriteOutage).To(Equal(journal.UpgradeWriteOutage))
 		Expect(p.MustRecoverWithin).To(Equal(10 * time.Minute))
 	})
 

@@ -172,9 +172,12 @@ func (u *UpgradeDocumentDB) readDesiredVersion(ctx context.Context) (string, err
 
 // OutagePolicy bounds the write outage of a rolling upgrade. Standby restarts
 // do not block writes; the write path is only interrupted during the single
-// graceful primary switchover, so it shares the primary-handover budget with
-// kill-primary-pod (see journal.PrimaryHandoverPolicy). The upgrade's longer
+// primary switchover. That switchover is heavier than a plain failover because
+// it coincides with the extension version migration under live write load and
+// the new primary must come up on the new image before accepting writes, so the
+// upgrade uses its own (larger) write-outage budget rather than sharing the
+// kill-primary-pod one (see journal.UpgradeOutagePolicy). The upgrade's longer
 // whole-topology restart is bounded separately by MustRecoverWithin.
 func (u *UpgradeDocumentDB) OutagePolicy() journal.OutagePolicy {
-	return journal.PrimaryHandoverPolicy(u.recovery)
+	return journal.UpgradeOutagePolicy(u.recovery)
 }
