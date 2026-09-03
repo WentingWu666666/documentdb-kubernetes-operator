@@ -58,7 +58,6 @@ func run(cfg config.Config) int {
 
 	// Initialize components.
 	j := journal.New()
-	j.SetWriteRate(workload.AggregateWriteRate(cfg.NumWriters))
 	metrics := workload.NewMetrics()
 
 	// Connect to DocumentDB.
@@ -211,8 +210,17 @@ func run(cfg config.Config) int {
 			<-opRunner.Done()
 		}
 	} else {
-		<-ctx.Done()
-		j.Info("main", fmt.Sprintf("test ending: %v", ctx.Err()))
+		// Random/disabled modes are duration-driven, but a terminal operation
+		// failure also halts the runner early (Scheduler.Run returns and closes
+		// Done). React to that too so the FAIL verdict is emitted promptly
+		// instead of waiting out MaxDuration, which is unbounded in production.
+		select {
+		case <-ctx.Done():
+			j.Info("main", fmt.Sprintf("test ending: %v", ctx.Err()))
+		case <-opRunner.Done():
+			j.Info("main", "operations halted early (failure)")
+		}
+		cancel()
 		<-opRunner.Done()
 	}
 	cancel()

@@ -53,39 +53,13 @@ type Journal struct {
 
 	// All closed disruption windows.
 	closedWindows []DisruptionWindow
-
-	// writesPerSecond is the workload's aggregate write rate, stamped onto each
-	// disruption window so ExceededPolicy can convert write-failure counts into
-	// an estimated outage duration. Defaults to DefaultWritesPerSecond; override
-	// with SetWriteRate once the real writer count is known.
-	writesPerSecond float64
 }
-
-// DefaultWritesPerSecond is the assumed aggregate write rate used until
-// SetWriteRate is called. It matches the default workload (5 writers at one
-// write per 100ms = 50 writes/s) so tests and un-configured journals still
-// evaluate write-outage budgets sensibly.
-const DefaultWritesPerSecond = 50.0
 
 // New creates a new empty Journal.
 func New() *Journal {
 	return &Journal{
-		events:          make([]Event, 0, 256),
-		writesPerSecond: DefaultWritesPerSecond,
+		events: make([]Event, 0, 256),
 	}
-}
-
-// SetWriteRate records the workload's aggregate write rate (writes/second across
-// all writers) so disruption windows can translate write-failure counts into an
-// estimated outage duration. Non-positive values are ignored, preserving the
-// default. Safe for concurrent use.
-func (j *Journal) SetWriteRate(writesPerSecond float64) {
-	if writesPerSecond <= 0 {
-		return
-	}
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	j.writesPerSecond = writesPerSecond
 }
 
 // Record appends a new event to the journal. Safe for concurrent use.
@@ -139,10 +113,9 @@ func (j *Journal) OpenDisruptionWindow(operationName string, policy OutagePolicy
 	}
 
 	j.activeWindow = &DisruptionWindow{
-		OperationName:   operationName,
-		StartTime:       time.Now(),
-		Policy:          policy,
-		WritesPerSecond: j.writesPerSecond,
+		OperationName: operationName,
+		StartTime:     time.Now(),
+		Policy:        policy,
 	}
 
 	j.events = append(j.events, Event{
@@ -186,12 +159,32 @@ func (j *Journal) appendClosedWindow(window DisruptionWindow) {
 	}
 }
 
-// RecordWriteFailure increments the failure count for the active disruption window.
-func (j *Journal) RecordWriteFailure() {
+// RecordWriteOutcome reports the result of a single write attempt to the active
+// disruption window so it can measure the real write-outage duration from
+// timestamps. attemptStart is when the write attempt began (before the driver
+// call, which may block for the full server-selection timeout during an
+// outage). A failure opens or extends the current outage; a success closes it,
+// recording the first-failure -> first-success span as a candidate for the
+// window's longest observed outage. No-op when no window is active.
+func (j *Journal) RecordWriteOutcome(attemptStart time.Time, failed bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	if j.activeWindow != nil {
-		j.activeWindow.WriteFailures++
+	w := j.activeWindow
+	if w == nil {
+		return
+	}
+	if failed {
+		w.WriteFailures++
+		if w.WriteOutageStart.IsZero() {
+			w.WriteOutageStart = attemptStart
+		}
+		return
+	}
+	if !w.WriteOutageStart.IsZero() {
+		if gap := attemptStart.Sub(w.WriteOutageStart); gap > w.MaxWriteOutageObserved {
+			w.MaxWriteOutageObserved = gap
+		}
+		w.WriteOutageStart = time.Time{}
 	}
 }
 

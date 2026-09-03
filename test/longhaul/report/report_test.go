@@ -111,12 +111,12 @@ var _ = Describe("GenerateMarkdown", func() {
 			md := GenerateMarkdown(Summary{
 				Result: ResultPass,
 				Windows: []journal.DisruptionWindow{{
-					OperationName:   "scale-up",
-					StartTime:       now.Add(-30 * time.Second),
-					EndTime:         now,
-					WriteFailures:   3,
-					WritesPerSecond: 50,
-					Policy:          journal.OutagePolicy{MustRecoverWithin: time.Minute, MaxWriteOutage: time.Second},
+					OperationName:          "scale-up",
+					StartTime:              now.Add(-30 * time.Second),
+					EndTime:                now,
+					WriteFailures:          3,
+					MaxWriteOutageObserved: 100 * time.Millisecond,
+					Policy:                 journal.OutagePolicy{MustRecoverWithin: time.Minute, MaxWriteOutage: time.Second},
 				}},
 			})
 			Expect(md).To(ContainSubstring("Disruption Windows"))

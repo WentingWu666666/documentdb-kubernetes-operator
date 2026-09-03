@@ -102,7 +102,8 @@ var _ = Describe("Scheduler", func() {
 		It("records an ERROR event when Execute fails", func() {
 			op := &fakeOp{name: "boom", weight: 1, available: true, err: errors.New("kaboom")}
 			s := newSchedulerForTest(op)
-			s.executeOp(context.Background(), op)
+			err := s.executeOp(context.Background(), op)
+			Expect(err).To(HaveOccurred(), "executeOp must surface the failure so Run can halt the run")
 
 			var sawError bool
 			for _, e := range s.journal.Events() {

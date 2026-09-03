@@ -16,11 +16,13 @@ import "time"
 // replacement standby rejoins, which only MustRecoverWithin catches.
 type OutagePolicy struct {
 	// MaxWriteOutage bounds how long the write path (client -> gateway ->
-	// primary) may be unavailable during the window. It is evaluated from the
-	// observed write-failure count normalized by the workload's aggregate write
-	// rate (see DisruptionWindow.EstimatedWriteOutage), so the budget is
-	// expressed in wall-clock outage time and is independent of how many writer
-	// goroutines (LONGHAUL_NUM_WRITERS) are configured.
+	// primary) may be unavailable during the window. It is measured from write
+	// timestamps as the longest span from the first failing write attempt to
+	// the first subsequent successful write (see
+	// DisruptionWindow.EstimatedWriteOutage), so it reflects real wall-clock
+	// unavailability regardless of how many writer goroutines
+	// (LONGHAUL_NUM_WRITERS) are configured or how the driver batches its
+	// retries.
 	MaxWriteOutage time.Duration
 
 	// MustRecoverWithin is the maximum time from operation start to full cluster
@@ -38,12 +40,13 @@ func DefaultOutagePolicy() OutagePolicy {
 
 // NoOutageWriteOutageCushion is the tiny write-outage budget granted to
 // operations that are expected NOT to disrupt the data plane. It is not a
-// tolerance for real outages: one fully-failed write tick (every configured
-// writer failing once) maps to exactly one writeInterval of estimated outage
-// (~100ms) regardless of writer count, so this ~3-tick cushion absorbs unrelated
-// background noise (a client reconnect, service-endpoint churn) without
-// tolerating a genuine primary outage. Centralized so it can be recalibrated
-// against real long-haul runs in one place.
+// tolerance for real outages: the write-outage is measured as the span from the
+// first failing write to the next successful one, so a lone transient failure
+// (one writer, recovered on the next ~100ms tick) maps to roughly one
+// writeInterval of outage. This ~3-tick cushion absorbs unrelated background
+// noise (a client reconnect, service-endpoint churn) without tolerating a
+// genuine primary outage. Centralized so it can be recalibrated against real
+// long-haul runs in one place.
 const NoOutageWriteOutageCushion = 300 * time.Millisecond
 
 // NoOutagePolicy is the outage budget for operations that keep the write path
@@ -118,27 +121,41 @@ type DisruptionWindow struct {
 	// Policy is the outage budget for this window.
 	Policy OutagePolicy
 
-	// WriteFailures counts failures observed during this window.
+	// WriteFailures counts individual failed write attempts observed during
+	// this window. Retained for reporting only; the outage budget is evaluated
+	// from timestamps (see EstimatedWriteOutage), not this count.
 	WriteFailures int64
 
-	// WritesPerSecond is the workload's aggregate write rate at the time the
-	// window opened. It is used to convert the raw WriteFailures count into an
-	// estimated write-outage duration (see EstimatedWriteOutage). A real outage
-	// makes every writer fail on every tick, so failures accrue at the full
-	// aggregate rate and count/rate recovers the wall-clock outage duration
-	// regardless of writer count. Zero disables the write-outage check.
-	WritesPerSecond float64
+	// WriteOutageStart is the attempt-start time of the first failing write of
+	// the currently-open outage, or zero when writes are not currently failing.
+	// Set on the first failure after writes were healthy and cleared once a
+	// write succeeds again.
+	WriteOutageStart time.Time
+
+	// MaxWriteOutageObserved is the longest completed outage seen so far in this
+	// window: the span from a first failing write to the first subsequent
+	// success. EstimatedWriteOutage combines it with any still-open outage.
+	MaxWriteOutageObserved time.Duration
 }
 
-// EstimatedWriteOutage converts the observed write-failure count into an
-// approximate duration for which the write path was unavailable, using the
-// aggregate write rate captured when the window opened. Returns 0 when the rate
-// is unknown (<= 0), which disables the write-outage portion of the policy.
+// EstimatedWriteOutage returns the longest span during this window for which
+// the write path was unavailable, measured from write timestamps as
+// first-failing-attempt -> first-subsequent-success. If writes are still
+// failing when this is evaluated, the currently-open outage is measured up to
+// the window end (or now, for an active window). Returns 0 when no write ever
+// failed during the window.
 func (w *DisruptionWindow) EstimatedWriteOutage() time.Duration {
-	if w.WritesPerSecond <= 0 {
-		return 0
+	outage := w.MaxWriteOutageObserved
+	if !w.WriteOutageStart.IsZero() {
+		end := w.EndTime
+		if end.IsZero() {
+			end = time.Now()
+		}
+		if open := end.Sub(w.WriteOutageStart); open > outage {
+			outage = open
+		}
 	}
-	return time.Duration(float64(w.WriteFailures) / w.WritesPerSecond * float64(time.Second))
+	return outage
 }
 
 // IsActive returns true if the disruption window has not been closed.

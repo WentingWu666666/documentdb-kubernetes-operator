@@ -26,8 +26,9 @@ type Metrics struct {
 	WriteAcknowledged atomic.Int64
 
 	// WriteFailed counts non-DupKey insert errors. Does not advance seq, so
-	// the next tick retries the same seq; charged against the disruption-window
-	// budget via journal.RecordWriteFailure.
+	// the next tick retries the same seq; reported to the disruption window via
+	// journal.RecordWriteOutcome, which measures the outage duration from
+	// timestamps.
 	WriteFailed atomic.Int64
 
 	// VerifyPasses is the number of completed verifier scan cycles.

@@ -106,34 +106,41 @@ func (s *Scheduler) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.tryExecute(ctx)
+			if err := s.tryExecute(ctx); err != nil {
+				// A terminal operation failure ends the run immediately so the
+				// FAIL verdict is emitted promptly. In production MaxDuration is
+				// unbounded, so without this the loop would run forever and the
+				// failure would never surface.
+				s.journal.Error("scheduler", fmt.Sprintf("halting run after operation failure: %v", err))
+				return
+			}
 		}
 	}
 }
 
-func (s *Scheduler) tryExecute(ctx context.Context) {
+func (s *Scheduler) tryExecute(ctx context.Context) error {
 	s.mu.Lock()
 	if s.inProgress {
 		s.mu.Unlock()
-		return
+		return nil
 	}
 
 	// Check cooldown.
 	if !s.lastOpTime.IsZero() && time.Since(s.lastOpTime) < s.cooldown {
 		s.mu.Unlock()
-		return
+		return nil
 	}
 	s.mu.Unlock()
 
 	// Check steady-state gate.
 	if !s.healthMonitor.IsSteadyState() {
-		return
+		return nil
 	}
 
 	// Select an operation.
 	op := s.selectOperation(ctx)
 	if op == nil {
-		return
+		return nil
 	}
 
 	// Execute.
@@ -150,6 +157,7 @@ func (s *Scheduler) tryExecute(ctx context.Context) {
 	s.mu.Unlock()
 
 	s.recordExecution(op.Name(), err)
+	return err
 }
 
 func (s *Scheduler) selectOperation(ctx context.Context) Operation {
