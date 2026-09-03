@@ -14,14 +14,13 @@ See the [design document](../../docs/designs/long-haul-test-design.md) for archi
 - `kubectl` configured to access the cluster
 - Go 1.26+
 
-> **HA topology required for upgrade tests.** The `upgrade-documentdb` operation
-> auto-skips when `spec.instancesPerNode < 2` because a single-instance cluster
-> has no standby to absorb writes during the rolling restart — the upgrade
-> would produce real (true-positive) downtime that no operator change can
-> prevent. Run with `instancesPerNode: 2` (or `3`) to exercise the HA upgrade
-> path. The skip is "free": no cooldown is consumed, and the next 10s scheduler
-> tick re-evaluates eligibility, so scaling up at any point makes the upgrade
-> immediately schedulable.
+> **HA topology required for upgrade / failover ops.** `upgrade-documentdb` and
+> `kill-primary-pod` auto-skip when `spec.instancesPerNode < 2` (no standby to
+> absorb writes). Run with `instancesPerNode: 2` (or `3`) to exercise them. The
+> skip is free — the next scheduler tick re-evaluates, so scaling up at any point
+> makes them immediately schedulable. (See the
+> [design doc](../../docs/designs/long-haul-test-design.md#ha-preconditions) for
+> the rationale.)
 
 ### Run the Config Unit Tests
 
@@ -145,40 +144,15 @@ All configuration is via environment variables.
 
 ### Data Protection (ScheduledBackup + retention)
 
-When `LONGHAUL_BACKUP_ENABLED` is true, the driver ensures a `ScheduledBackup`
-named `<cluster>-longhaul` exists and matches the run's schedule/retention
-(an existing CR is reconciled in place, never recreated, so backup history is
-preserved across restarts and parameter changes) and runs a verifier
-concurrently with the operation scheduler (backup is deliberately **not**
-isolated from topology/chaos, per the design).
-
-The verifier only checks the properties a **multi-day** run can establish —
-things unit and e2e tests cannot:
-
-- **Scheduling liveness** — `status.lastScheduledTime` keeps advancing; a stalled
-  scheduler (past `status.nextScheduledTime` + grace) raises a warning.
-- **Completion** — child `Backup` CRs keep reaching `completed`; only terminal
-  `failed` backups are counted as failures. A `skipped` backup is an intentional
-  no-op (e.g. the operator declines to back up a non-primary/standby) and is
-  **not** counted as a failure. If backups keep being scheduled but stop
-  completing for 3 consecutive schedules (a dead completion path — every backup
-  failing or hanging), the run is a **FAIL**. A completed **or** skipped backup
-  resets this gap, so transient chaos-induced failures and normal standby /
-  failover intervals (where several consecutive schedules are skipped) are
-  tolerated.
-- **Retention leak** — no completed backup outlives its retention window
-  (`stoppedAt + spec.retentionDays*24h` + grace). The window is taken from each
-  backup's **own** `spec.retentionDays` (stamped at creation), so the check
-  stays correct even if a later run uses a different retention. A lingering
-  backup is a **FAIL**: expired backups aren't garbage-collected and the
-  population (and its PVCs / VolumeSnapshots) grows unbounded.
-
-It deliberately does **not** re-verify the operator's retention *arithmetic*
-(`expiredAt == stoppedAt + retentionDays*24h`) — that is a pure function already
-covered by the operator's unit tests and needs no accumulation. The oracle here
-is black-box: expired backups disappear. Because the minimum meaningful
-retention is 1 day, the leak check only fires on multi-day runs — exactly the
-accumulation window long-haul exists to cover.
+When `LONGHAUL_BACKUP_ENABLED` is true, the driver maintains a `ScheduledBackup`
+named `<cluster>-longhaul` (matching the run's schedule/retention; an existing CR
+is reconciled in place, never recreated, so backup history is preserved across
+restarts and parameter changes) and runs a verifier alongside the workload. The
+verifier FAILs the run if backups stop completing for 3 consecutive schedules, or
+if an expired backup is not garbage-collected (a retention leak); `skipped`
+backups (e.g. on a standby) are tolerated. See the
+[design document](../../docs/designs/long-haul-test-design.md#backup-verification)
+for exactly what it checks and why.
 
 > **RBAC.** The driver ServiceAccount needs `create`/`get`/`list`/`update` on
 > `scheduledbackups.documentdb.io` and `list` on `backups.documentdb.io`. These
@@ -205,17 +179,11 @@ Current stable operation names:
 | `kill-operator-pod` | Chaos | Deletes the operator pod; asserts the data plane keeps serving (near-zero outage budget). |
 | `kill-primary-pod` | Chaos | Deletes the CNPG primary pod to exercise automatic failover; requires HA (`instancesPerNode>=2`). |
 
-Operations that keep the write path up throughout — the scale ops and
-`kill-operator-pod` — are held to a near-zero write-outage budget, so a
-regression that unexpectedly disrupts writes during a "safe" operation is
-caught. `kill-primary-pod` tolerates a short outage for a single failover
-(~30s), and `upgrade-documentdb` tolerates a larger one (~90s) because a
-cross-version rolling upgrade's primary switchover coincides with the extension
-migration under live write load. Budgets are wall-clock write-outage durations
-and are independent of `LONGHAUL_NUM_WRITERS`; the longer whole-topology restart
-is bounded separately by the recovery timeout. See the
-[design document](../../docs/designs/long-haul-test-design.md) for the exact
-policies and rationale.
+Each operation has a write-outage budget: the scale ops and `kill-operator-pod`
+keep writes up (near-zero budget), `kill-primary-pod` tolerates a single
+failover, and `upgrade-documentdb` a cross-version switchover. See the
+[design document](../../docs/designs/long-haul-test-design.md#outage-budgets)
+for the exact budgets and rationale.
 
 Operation execution failures are terminal verdict failures in both `random` and
 `sequence` modes. The `longhaul-report` ConfigMap exposes `operation-status`,
@@ -237,62 +205,23 @@ setup.)
 
 ## CI Safety
 
-The production long haul test binary is deployed as a Kubernetes Deployment on
-a dedicated AKS cluster. A short PR smoke workflow runs the same driver and
-manifests against kind in **sequence mode**. Because a Deployment
-auto-restarts exited pods, the source of truth for "did the test pass?" is the
-`longhaul-report` ConfigMap and the GitHub Actions annotations, not the pod
-status.
-
-The smoke gate runs the operation scheduler in sequence mode
-(`LONGHAUL_OPERATION_MODE=sequence`) with an explicit ordered
-`LONGHAUL_OPERATION_SEQUENCE`, so each operation runs exactly once, in order:
-scale up, scale down, upgrade DocumentDB, kill the operator pod, and kill the
-primary pod. Each runs behind the same steady-state / precondition / recovery
-logic the multi-day run uses, and the gate asserts every sequenced operation
-reached `PASSED` and the run reached `COMPLETE` — a deterministic verdict that
-builds confidence the operations execute end-to-end. The upgrade is a real
-cross-version upgrade: the cluster starts on the most recent published release
-before the under-test version and `upgrade-documentdb` moves it forward to the
-under-test version, exercising the operator's rolling-update path.
+The production long-haul binary runs as a Kubernetes Deployment on a dedicated
+AKS cluster. A short PR smoke workflow (`.github/workflows/longhaul-smoke.yml`)
+runs the same driver and manifests against kind in **sequence mode**, exercising
+every operation once (scale up, scale down, upgrade DocumentDB, kill the operator
+pod, kill the primary pod — including a real cross-version upgrade) and asserting
+the `longhaul-report` ConfigMap reaches a `PASS` / `COMPLETE` verdict. Because a
+Deployment auto-restarts exited pods, that report (and the GitHub Actions
+annotations) — not the pod status — is the source of truth for "did the test
+pass?".
 
 The config unit tests (`test/longhaul/config/`) run unconditionally and are included in normal
 CI test runs — they are fast (~0.002s) and require no cluster.
 
 ## Relationship to `test/e2e/`
 
-The `test/e2e/` Ginkgo suite (added in PR #346) and this long haul harness are **separate
-modules with intentionally different shapes**. They share a problem domain (exercising a
-DocumentDB cluster) but answer different questions:
-
-| | `test/e2e/` | `test/longhaul/` |
-|---|---|---|
-| Shape | Go test binary (Ginkgo specs) | Standalone long-running daemon |
-| Lifetime | Minutes per spec | Days–weeks per run |
-| Asserts | One behavior per spec, then exits | Continuous invariants over time |
-| Failure mode | `t.Fail` per spec | Journal entry + alert + auto-restart |
-| Cluster | Created + torn down per run | Long-lived dedicated AKS cluster |
-| Operator API | Typed (`previewv1.DocumentDB` via controller-runtime) | Typed (`previewv1.DocumentDB` via controller-runtime + `test/shared/documentdb` helpers) |
-
-### Code that is shared today
-
-The harness consumes the `test/shared/` module (extracted in PR #401):
-
-- `test/shared/documentdb` — typed `DocumentDB` CR helpers (`Get`, `IsHealthy`,
-  `PatchInstances`, `PatchSpec`). The monitor's `K8sClusterClient` uses these
-  as the single source of truth for the readiness predicate so longhaul and
-  e2e can't drift on what "healthy" means.
-- `test/shared/mongo` — `NewFromURI` for the data-plane connection.
-
-### Future opportunities
-
-The e2e suite has additional helpers in `test/e2e/pkg/e2eutils/` that this
-harness will likely consume as it grows:
-
-- `e2eutils/mongo` — `BuildURI` (URL-escapes username/password), TLS-from-CA-bundle,
-  `Handle` with port-forward + secret-backed credentials. The long haul driver
-  currently takes a raw `LONGHAUL_DOCUMENTDB_URI` string; when it moves to per-secret
-  credentials or in-cluster TLS, these helpers become directly applicable.
-- `e2eutils/operatorhealth` — pod-ready / CRD-ready gating used during e2e setup.
-  The monitor's `isPodReady` could delegate to this.
-- `e2eutils/clusterprobe` — CRD presence checks.
+The `test/e2e/` Ginkgo suite and this long-haul harness are **separate modules
+with intentionally different shapes** that share the `test/shared/` helpers
+(`test/shared/documentdb` CR helpers and `test/shared/mongo`). See the
+[design document](../../docs/designs/long-haul-test-design.md#relationship-to-teste2e)
+for the full comparison, the shared code today, and future opportunities.

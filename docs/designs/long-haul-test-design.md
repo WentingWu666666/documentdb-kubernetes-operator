@@ -103,6 +103,20 @@ management operations.
 
 Each operation declares an **outage policy**: tolerated write failures during its disruption window and a max recovery time. Breaching the policy is recorded as a Tier-1 failure (see Failure Tiers).
 
+### Outage budgets
+
+Budgets are wall-clock write-outage durations, independent of the writer count; the longer whole-topology restart is bounded separately by the recovery timeout.
+
+- **Scale up / down and `kill-operator-pod`** keep the primary write path up throughout, so they are held to a **near-zero** write-outage budget — a regression that unexpectedly disrupts writes during a "safe" operation is caught.
+- **`kill-primary-pod`** tolerates a short outage for a single automatic failover (~30s).
+- **`upgrade-documentdb`** tolerates a larger one (~90s): a cross-version rolling upgrade's primary switchover coincides with the extension migration under live write load.
+
+Exact values live in code (`test/longhaul/journal/policy.go`).
+
+### HA preconditions
+
+`upgrade-documentdb` and `kill-primary-pod` require an HA topology (`spec.instancesPerNode >= 2`) and **auto-skip** otherwise: with no standby to absorb writes, the disruption would produce real (true-positive) downtime that no operator change can prevent. A skip consumes no cooldown and is re-evaluated on the next scheduler tick, so scaling up makes the operation immediately eligible again.
+
 Operation state is intentionally bounded for multi-day runs. Random mode keeps
 only passed/failed counters per registered operation type; sequence mode keeps
 one mutable `PENDING`/`RUNNING`/`PASSED`/`FAILED` result per requested item.
@@ -133,6 +147,20 @@ Key invariants:
 - **Deployment-blind.** The workload imports no Kubernetes libraries, so the same binary runs against any cluster (AKS, EKS, GKE, kind).
 
 Losing an acknowledged write or observing a checksum mismatch is a Tier-1 failure regardless of what else is happening.
+
+---
+
+## Backup Verification
+
+When enabled, the driver maintains a canary `ScheduledBackup` named `<cluster>-longhaul` (reconciled in place, never recreated, so history survives restarts and parameter changes) and runs a verifier concurrently with the operation scheduler — backup is deliberately not isolated from topology/chaos.
+
+The verifier only checks properties a **multi-day** run can establish, which unit and e2e tests cannot:
+
+- **Scheduling liveness** — `status.lastScheduledTime` keeps advancing; a stalled scheduler (past `nextScheduledTime` + grace) raises a warning.
+- **Completion** — child `Backup` CRs keep reaching `completed`. Only terminal `failed` backups count as failures; a `skipped` backup (e.g. the operator declines to back up a standby) is an intentional no-op. If backups are scheduled but stop completing for **3 consecutive schedules**, the run FAILs; a completed or skipped backup resets the gap, so transient chaos-induced failures and normal standby/failover intervals are tolerated.
+- **Retention leak** — no completed backup outlives its retention window (`stoppedAt + spec.retentionDays*24h` + grace), taken from each backup's own stamped `retentionDays` (so the check stays correct even if a later run uses a different retention). A lingering backup is a FAIL: expired backups (and their PVCs / VolumeSnapshots) would otherwise grow unbounded.
+
+The oracle is black-box: expired backups disappear. It deliberately does **not** re-verify the operator's retention *arithmetic* (`expiredAt == stoppedAt + retentionDays*24h`) — that is a pure function already covered by operator unit tests and needs no accumulation. Because the minimum meaningful retention is 1 day, the leak check only fires on multi-day runs — exactly the accumulation window long-haul exists to cover.
 
 ---
 
@@ -170,6 +198,32 @@ A Fatal failure does **not** auto-recreate the cluster — the preserved state i
 | **Antithesis** | Same property-based oracle philosophy applied to unmodified binaries | Deterministic hypervisor — runs in simulated time on a fake network/disk, so it targets rare-interleaving logic bugs rather than the wall-clock accumulation bugs long-haul exists to catch |
 
 **Universal pattern:** Separate workload from disruptions, run concurrently, verify against an acknowledged-write oracle, use per-operation disruption budgets.
+
+---
+
+## Relationship to `test/e2e/`
+
+The `test/e2e/` Ginkgo suite (added in PR #346) and this long-haul harness are **separate modules with intentionally different shapes**. They share a problem domain (exercising a DocumentDB cluster) but answer different questions:
+
+| | `test/e2e/` | `test/longhaul/` |
+|---|---|---|
+| Shape | Go test binary (Ginkgo specs) | Standalone long-running daemon |
+| Lifetime | Minutes per spec | Days–weeks per run |
+| Asserts | One behavior per spec, then exits | Continuous invariants over time |
+| Failure mode | `t.Fail` per spec | Journal entry + alert + auto-restart |
+| Cluster | Created + torn down per run | Long-lived dedicated AKS cluster |
+| Operator API | Typed (`previewv1.DocumentDB` via controller-runtime) | Typed (`previewv1.DocumentDB` via controller-runtime + `test/shared/documentdb` helpers) |
+
+**Shared code today.** The harness consumes the `test/shared/` module (extracted in PR #401):
+
+- `test/shared/documentdb` — typed `DocumentDB` CR helpers (`Get`, `IsHealthy`, `PatchInstances`, `PatchSpec`). The monitor's `K8sClusterClient` uses these as the single source of truth for the readiness predicate so longhaul and e2e can't drift on what "healthy" means.
+- `test/shared/mongo` — `NewFromURI` for the data-plane connection.
+
+**Future opportunities.** The e2e suite has additional helpers in `test/e2e/pkg/e2eutils/` that this harness will likely consume as it grows:
+
+- `e2eutils/mongo` — `BuildURI` (URL-escapes username/password), TLS-from-CA-bundle, `Handle` with port-forward + secret-backed credentials.
+- `e2eutils/operatorhealth` — pod-ready / CRD-ready gating used during e2e setup.
+- `e2eutils/clusterprobe` — CRD presence checks.
 
 ---
 
