@@ -17,15 +17,18 @@
 #   test-build-and-package.yml reusable workflow) so a code change that breaks
 #   the operator is caught. The documentdb + gateway (database) images are NOT
 #   built at all: the smoke exercises an upgrade between two published database
-#   releases, pulling both the 0.110.0 base and the under-test target straight
+#   releases, pulling both the 0.110.0 base and the 0.113.0 target straight
 #   from the public registry. The long-haul driver image is the only extra
 #   image this workflow builds.
 #
 # Environment bring-up is delegated to the shared composite action
 #   .github/actions/setup-test-environment
-# (use-external-images: false — load operator/sidecar/documentdb/gateway from
-# the build artifacts into kind), exactly like test-e2e.yml. No operator-install
-# logic is duplicated here.
+# (use-external-images: false — load the operator/sidecar built from this PR
+# into kind), exactly like test-e2e.yml. No operator-install logic is
+# duplicated here. The action also loads the artifact's documentdb/gateway
+# images, but the smoke does not use them: the database base and target are
+# pulled from the public registry (see the setup-step overrides and the
+# prepare step).
 #
 # Why reuse test/longhaul/deploy/{deployment,rbac}.yaml as-is
 #   The whole point of the gate is to exercise the SAME manifests the long-haul
@@ -54,12 +57,13 @@
 #   long-haul run uses. This is the deterministic path that builds confidence the
 #   operations execute end-to-end; the gate asserts every sequenced operation
 #   reached PASSED and the run reached COMPLETE. The upgrade is a real
-#   cross-version rolling upgrade: the cluster starts on the most recent
-#   published release before the under-test version (0.110.0) and the
-#   upgrade-documentdb operation moves documentDBVersion forward to the
-#   under-test version (the chart's documentDbVersion), exercising the
-#   operator's rolling-update path with clean semver versions the image-rollback
-#   webhook accepts. MAX_DURATION is only the completion watchdog.
+#   cross-version rolling upgrade between two published releases: the cluster
+#   starts on DB_BASE_VERSION (0.110.0) and the upgrade-documentdb operation
+#   moves documentDBVersion forward to DB_TARGET_VERSION (0.113.0), exercising
+#   the operator's rolling-update path with clean semver versions the
+#   image-rollback webhook accepts. Both endpoints are hardcoded in the job env
+#   (keep DB_TARGET_VERSION in sync with the chart's documentDbVersion).
+#   MAX_DURATION is only the completion watchdog.
 #
 # Data-protection gate
 #   The backup verifier is exercised for real, not just compiled in. The kind
@@ -148,10 +152,11 @@ jobs:
       MAX_DURATION: ${{ github.event.inputs.max_duration || '20m' }}
       # Two published database releases the smoke upgrades between. The cluster
       # STARTS at DB_BASE_VERSION and the upgrade operation moves it forward to
-      # DB_TARGET_VERSION (the under-test release; keep in sync with the chart's
-      # documentDbVersion). Both are pulled from the public registry — the smoke
-      # builds no database image. 0.110.0 is the most recent published release
-      # before 0.113.0 (0.111.0 / 0.112.0 were never published).
+      # DB_TARGET_VERSION. Both are hardcoded here and pulled from the public
+      # registry — the smoke builds no database image. Keep DB_TARGET_VERSION in
+      # sync with the chart's documentDbVersion (nothing enforces it). 0.110.0 is
+      # the most recent published release before 0.113.0 (0.111.0 / 0.112.0 were
+      # never published).
       DB_BASE_VERSION: "0.110.0"
       DB_TARGET_VERSION: "0.113.0"
       DOCUMENTDB_REPO: ghcr.io/documentdb/documentdb-kubernetes-operator/documentdb
@@ -202,6 +207,11 @@ jobs:
           db-password: ${{ env.DB_PASSWORD }}
           db-port: ${{ env.GATEWAY_PORT }}
           image-tag: ${{ env.IMAGE_TAG }}
+          # Required only to satisfy the shared action's mandatory local-build
+          # DB-image load (it kind-loads the artifact's documentdb/gateway images
+          # tagged with this value). The smoke does not otherwise use those
+          # images — the upgrade's base and target are pulled from the public
+          # registry (see the overrides below and the prepare step).
           documentdb-image-tag: ${{ env.EXT_IMAGE_TAG }}
           # Start the cluster at the released base version so the upgrade
           # operation performs a real cross-version rolling upgrade. These
@@ -230,18 +240,17 @@ jobs:
             --from-literal=uri="${URI}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Prepare cross-version upgrade target (0.110.0 -> under-test)
+      - name: Prepare cross-version upgrade target (0.110.0 -> 0.113.0)
         run: |
           set -euo pipefail
           target_version="${DB_TARGET_VERSION}"
           echo "Upgrade: ${DB_BASE_VERSION} -> ${target_version}"
 
-          # Pull the RELEASED base and target database images straight from the
-          # public registry and load them into kind under their canonical repo +
-          # semver tag, so documentDBVersion resolves to the real releases. The
-          # smoke builds no database image: it upgrades between two published
-          # releases (base -> target), both pulled here (the base is also
-          # deployed by the setup step via the spec.image overrides).
+          # Pull the RELEASED target database images straight from the public
+          # registry and load them into kind under their canonical repo + semver
+          # tag, so documentDBVersion=<target> resolves to the real release. The
+          # base (0.110.0) was already pulled and deployed by the setup step via
+          # the spec.image overrides; the smoke builds no database image.
           for component in documentdb gateway; do
             img="ghcr.io/documentdb/documentdb-kubernetes-operator/${component}:${target_version}"
             docker pull "${img}"
