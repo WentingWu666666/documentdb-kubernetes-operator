@@ -56,6 +56,8 @@ func (g *sequenceTestGate) WaitForSteadyState(context.Context) error {
 	return g.err
 }
 
+func (g *sequenceTestGate) InvalidateSteadyState() {}
+
 func runSequence(runner *SequenceRunner, ctx context.Context) RunSnapshot {
 	go runner.Run(ctx)
 	Eventually(runner.Done()).Should(BeClosed())

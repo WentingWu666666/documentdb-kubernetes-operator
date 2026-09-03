@@ -115,7 +115,7 @@ Exact values live in code (`test/longhaul/journal/policy.go`).
 
 ### HA preconditions
 
-`upgrade-documentdb` and `kill-primary-pod` require an HA topology (`spec.instancesPerNode >= 2`) and **auto-skip** otherwise: with no standby to absorb writes, the disruption would produce real (true-positive) downtime that no operator change can prevent. A skip consumes no cooldown and is re-evaluated on the next scheduler tick, so scaling up makes the operation immediately eligible again.
+`upgrade-documentdb` and `kill-primary-pod` require an HA topology (`spec.instancesPerNode >= 2`): with no standby to absorb writes, the disruption would produce real (true-positive) downtime that no operator change can prevent. The two runners handle an unmet precondition differently: **random** mode **auto-skips** (the skip consumes no cooldown and is re-evaluated on the next scheduler tick, so scaling up makes the operation eligible again), whereas **sequence** mode does not skip — it waits for the precondition up to the recovery timeout and then fails the sequence, so an HA-dependent op must be preceded by a `scale-up` (or start at `instancesPerNode >= 2`).
 
 Operation state is intentionally bounded for multi-day runs. Random mode keeps
 only passed/failed counters per registered operation type; sequence mode keeps

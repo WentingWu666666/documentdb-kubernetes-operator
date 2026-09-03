@@ -153,6 +153,21 @@ func (h *HealthMonitor) IsSteadyState() bool {
 	return time.Since(h.steadySince) >= h.steadyStateWait
 }
 
+// InvalidateSteadyState resets the steady-state epoch so the next successful
+// WaitForSteadyState / IsSteadyState must observe a *fresh* continuous-healthy
+// interval: at least one health sample taken after this call, then
+// steadyStateWait of continuous health. Callers invoke it when they open a
+// disruption (e.g. patch the topology or delete a pod) so a stale
+// pre-operation steadySince — the monitor polls on its own, slower cadence —
+// cannot satisfy the post-operation recovery gate before the monitor has
+// actually observed the change.
+func (h *HealthMonitor) InvalidateSteadyState() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.steadySince = time.Time{}
+	h.healthySamples = 0
+}
+
 // LastHealth returns the most recent health observation.
 func (h *HealthMonitor) LastHealth() ClusterHealth {
 	h.mu.RLock()

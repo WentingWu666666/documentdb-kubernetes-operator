@@ -17,6 +17,7 @@ const defaultPreconditionPollInterval = time.Second
 // SteadyStateGate is the health-monitor surface needed by sequence mode.
 type SteadyStateGate interface {
 	WaitForSteadyState(ctx context.Context) error
+	InvalidateSteadyState()
 }
 
 type preconditionWaitFunc func(context.Context, Operation) error
@@ -119,6 +120,11 @@ func (r *SequenceRunner) runOne(ctx context.Context, op Operation) error {
 
 	r.journal.Info("sequence", fmt.Sprintf("executing operation: %s", op.Name()))
 	r.journal.OpenDisruptionWindow(op.Name(), op.OutagePolicy())
+	// Reset the steady-state epoch so the post-recovery gate (and the
+	// operation's own internal steady-state wait) must observe a health
+	// sample taken after the disruption is opened, rather than being
+	// satisfied instantly by the pre-operation steadySince.
+	r.steadyStateGate.InvalidateSteadyState()
 
 	executeCtx, cancelExecute := context.WithTimeout(ctx, r.recoveryTimeout)
 	executeErr := op.Execute(executeCtx)

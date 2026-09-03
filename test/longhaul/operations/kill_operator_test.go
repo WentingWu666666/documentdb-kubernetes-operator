@@ -15,6 +15,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
@@ -40,14 +41,21 @@ func operatorDeployment(desired, ready, unavailable int32, gen, observed int64) 
 }
 
 func operatorPod(name string, phase corev1.PodPhase, ageSeconds int) *corev1.Pod {
+	status := corev1.PodStatus{Phase: phase}
+	if phase == corev1.PodRunning {
+		status.Conditions = []corev1.PodCondition{
+			{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+		}
+	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              name,
 			Namespace:         opNS,
+			UID:               types.UID(name),
 			Labels:            map[string]string{"app": "documentdb-operator"},
 			CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Duration(ageSeconds) * time.Second)),
 		},
-		Status: corev1.PodStatus{Phase: phase},
+		Status: status,
 	}
 }
 

@@ -188,6 +188,12 @@ func (s *Scheduler) selectOperation(ctx context.Context) Operation {
 func (s *Scheduler) executeOp(ctx context.Context, op Operation) error {
 	s.journal.Info("scheduler", fmt.Sprintf("executing operation: %s", op.Name()))
 	s.journal.OpenDisruptionWindow(op.Name(), op.OutagePolicy())
+	// Reset the steady-state epoch so the operation's internal recovery wait
+	// and the next scheduler-tick steady-state gate must observe a health
+	// sample taken after this disruption, not a stale pre-operation one.
+	if s.healthMonitor != nil {
+		s.healthMonitor.InvalidateSteadyState()
+	}
 
 	err := op.Execute(ctx)
 	window := s.journal.CloseDisruptionWindow()

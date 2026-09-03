@@ -27,6 +27,8 @@ func (g *successfulSteadyGate) WaitForSteadyState(context.Context) error {
 	return nil
 }
 
+func (g *successfulSteadyGate) InvalidateSteadyState() {}
+
 var _ = Describe("KillPrimaryPod", func() {
 	It("Name is kill-primary-pod and Weight is 2", func() {
 		k := NewKillPrimaryPod(&fakeClient{}, nil, time.Minute)

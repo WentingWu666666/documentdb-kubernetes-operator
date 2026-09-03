@@ -124,9 +124,11 @@ func (k *KillPrimaryPod) waitForPrimaryChange(ctx context.Context, original stri
 }
 
 // OutagePolicy bounds the write outage of an automatic failover. Killing the
-// primary interrupts writes until CNPG detects the loss and promotes a standby.
-// It shares the single-primary-handover budget with upgrade-documentdb (see
-// journal.PrimaryHandoverPolicy).
+// primary interrupts writes until CNPG detects the loss and promotes a standby,
+// so it uses the single-primary-handover budget (journal.PrimaryHandoverPolicy,
+// ~30s). upgrade-documentdb has its own, larger budget
+// (journal.UpgradeOutagePolicy, ~90s): its graceful switchover coincides with
+// the extension migration under live write load.
 func (k *KillPrimaryPod) OutagePolicy() journal.OutagePolicy {
 	return journal.PrimaryHandoverPolicy(k.recovery)
 }

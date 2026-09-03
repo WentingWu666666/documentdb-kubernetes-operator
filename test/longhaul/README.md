@@ -15,10 +15,13 @@ See the [design document](../../docs/designs/long-haul-test-design.md) for archi
 - Go 1.26+
 
 > **HA topology required for upgrade / failover ops.** `upgrade-documentdb` and
-> `kill-primary-pod` auto-skip when `spec.instancesPerNode < 2` (no standby to
-> absorb writes). Run with `instancesPerNode: 2` (or `3`) to exercise them. The
-> skip is free — the next scheduler tick re-evaluates, so scaling up at any point
-> makes them immediately schedulable. (See the
+> `kill-primary-pod` require `spec.instancesPerNode >= 2` (a standby to absorb
+> writes). Behaviour when the precondition is unmet differs by mode: in
+> **random** mode they auto-skip (no cooldown consumed; re-evaluated on the next
+> tick), but in **sequence** mode there is *no* skip — the runner waits for the
+> precondition up to `LONGHAUL_RECOVERY_TIMEOUT` and then fails the sequence. So
+> run with `instancesPerNode: 2` (or `3`), or place a `scale-up` earlier in the
+> sequence, to exercise them. (See the
 > [design doc](../../docs/designs/long-haul-test-design.md#ha-preconditions) for
 > the rationale.)
 

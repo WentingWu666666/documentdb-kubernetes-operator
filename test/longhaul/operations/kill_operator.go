@@ -104,8 +104,41 @@ func (k *KillOperatorPod) Execute(ctx context.Context) error {
 		return err
 	}
 
+	// The old pod being gone does not yet mean recovery: the Deployment's
+	// status counters may still momentarily reflect the pre-deletion replica
+	// as Ready. Require a replacement pod (different UID) to actually reach
+	// Ready before trusting the Deployment-level availability check.
+	if err := k.waitForReplacementReady(recoveryCtx, selector, targetUID); err != nil {
+		return err
+	}
+
 	// Wait for the Deployment to reschedule and become Available again.
 	return k.waitForDeploymentAvailable(recoveryCtx)
+}
+
+// waitForReplacementReady blocks until a pod matching selector, with a UID
+// different from the deleted pod, is Running and Ready. This guarantees the
+// operator has genuinely rescheduled rather than letting a stale Deployment
+// status (still counting the pre-deletion replica) report a false recovery.
+func (k *KillOperatorPod) waitForReplacementReady(ctx context.Context, selector string, deletedUID types.UID) error {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		pods, err := k.clientset.CoreV1().Pods(k.namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+		if err == nil {
+			for i := range pods.Items {
+				p := &pods.Items[i]
+				if p.UID != deletedUID && p.DeletionTimestamp == nil && isPodReady(p) {
+					return nil
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for a replacement operator pod to become ready: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 // waitForPodGone blocks until the pod identified by name/uid is deleted
@@ -170,6 +203,20 @@ func isDeploymentAvailable(dep *appsv1.Deployment) bool {
 		return false
 	}
 	return dep.Status.ReadyReplicas >= desired && dep.Status.UnavailableReplicas == 0
+}
+
+// isPodReady reports whether the pod is in the Running phase with a Ready
+// condition set to True.
+func isPodReady(p *corev1.Pod) bool {
+	if p.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 // oldestRunningPod returns the name and UID of the oldest pod in the Running
