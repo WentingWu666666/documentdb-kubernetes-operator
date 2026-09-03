@@ -50,6 +50,9 @@ const (
 	// Data retention. Bounds the workload collection so an unbounded write
 	// test does not eventually exhaust the PVC.
 	EnvRetainPerWriter = "LONGHAUL_RETAIN_PER_WRITER"
+
+	// EnvPruneInterval overrides how often the pruner trims old documents.
+	EnvPruneInterval = "LONGHAUL_PRUNE_INTERVAL"
 )
 
 // DefaultRetainPerWriter is the default number of most-recent documents kept
@@ -138,6 +141,11 @@ type Config struct {
 	// Older, already-verified documents are pruned to bound disk usage. Zero
 	// disables pruning (unbounded growth — the pre-retention behavior).
 	RetainPerWriter int64
+
+	// PruneInterval is how often the pruner trims old documents. The 5m default
+	// suits a multi-day run; short bounded runs (e.g. the smoke gate) lower it
+	// so the pruner fires within the window.
+	PruneInterval time.Duration
 }
 
 // DefaultConfig returns a Config with safe defaults for local development.
@@ -163,6 +171,7 @@ func DefaultConfig() Config {
 		BackupVerifyInterval: 5 * time.Minute,
 
 		RetainPerWriter: DefaultRetainPerWriter,
+		PruneInterval:   5 * time.Minute,
 	}
 }
 
@@ -297,6 +306,14 @@ func LoadFromEnv() (Config, error) {
 			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvRetainPerWriter, v, err)
 		}
 		cfg.RetainPerWriter = n
+	}
+
+	if v := os.Getenv(EnvPruneInterval); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid %s=%q: %w", EnvPruneInterval, v, err)
+		}
+		cfg.PruneInterval = d
 	}
 
 	return cfg, nil

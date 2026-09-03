@@ -144,6 +144,7 @@ All configuration is via environment variables.
 | `LONGHAUL_BACKUP_VERIFY_INTERVAL` | No | `5m` | How often the backup verifier samples the `ScheduledBackup` and its children. Lower it for short bounded runs (e.g. the smoke gate uses `30s`) so the periodic loop fires several times within the window. |
 | `LONGHAUL_RESET_DATA` | No | `false` | If `true`, drop the workload collection on startup. Off by default so a Deployment pod restart preserves durability history. |
 | `LONGHAUL_RETAIN_PER_WRITER` | No | `2000000` | Retention window: most-recent verified documents kept per writer before the pruner deletes older ones, bounding disk usage. `0` disables pruning (unbounded growth). |
+| `LONGHAUL_PRUNE_INTERVAL` | No | `5m` | How often the pruner trims old documents. Lower it for short bounded runs (e.g. the smoke gate uses `30s`) so a prune fires within the window. |
 
 ### Data Protection (ScheduledBackup + retention)
 

@@ -303,7 +303,10 @@ jobs:
           # the shipped ConfigMap; the manifest structure is unchanged.
           #  - MAX_DURATION: finite run (completion watchdog)
           #  - RESET_DATA: fresh collection each CI run
-          #  - RETAIN_PER_WRITER: low enough to force a real prune at 5m
+          #  - RETAIN_PER_WRITER + PRUNE_INTERVAL: retain few docs and prune
+          #    every 30s (vs the 5m default) so a real prune fires within the
+          #    bounded window instead of relying on the run happening to outlast
+          #    the default first tick.
           #  - OPERATION_MODE=sequence + OPERATION_SEQUENCE: run every operation
           #    (scale-up, scale-down, upgrade-documentdb, kill-operator-pod,
           #    kill-primary-pod) exactly once, in a fixed order. This is the
@@ -326,6 +329,7 @@ jobs:
               LONGHAUL_RESET_DATA: "true",
               LONGHAUL_NUM_WRITERS: "2",
               LONGHAUL_RETAIN_PER_WRITER: "100",
+              LONGHAUL_PRUNE_INTERVAL: "30s",
               LONGHAUL_OPERATION_MODE: "sequence",
               LONGHAUL_OPERATION_SEQUENCE: "scale-up,scale-down,upgrade-documentdb,kill-operator-pod,kill-primary-pod",
               LONGHAUL_STEADY_STATE_WAIT: "5s",

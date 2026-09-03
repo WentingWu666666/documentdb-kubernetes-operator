@@ -141,7 +141,7 @@ func run(cfg config.Config) int {
 	// below the verifier's confirmed floor, so it never affects the durability
 	// verdict. Disabled when RetainPerWriter == 0.
 	if cfg.RetainPerWriter > 0 {
-		workload.StartPruner(ctx, db.Collection(workload.CollectionName), writers, verifier, cfg.RetainPerWriter, metrics, j)
+		workload.StartPruner(ctx, db.Collection(workload.CollectionName), writers, verifier, cfg.RetainPerWriter, cfg.PruneInterval, metrics, j)
 		j.Info("main", "retention pruner started")
 	} else {
 		j.Info("main", "retention pruning disabled (LONGHAUL_RETAIN_PER_WRITER=0)")
