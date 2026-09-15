@@ -171,6 +171,12 @@ type ImageSpec struct {
 	// The default floats within PostgreSQL major 18 via CNPG's
 	// "18-minimal-trixie" tag, so deployments pick up new 18.x minors and
 	// Debian/PGDG security rebuilds automatically.
+	//
+	// The floating tag currently resolves to PG 18.6+, which is only safe
+	// for DocumentDB extension >= 0.116.0: older extensions segfault on
+	// insert under PG 18.6 (fixed upstream in documentdb/documentdb 3555c7d,
+	// first released in 0.116.0). Keep the default documentDbVersion, and any
+	// version pair exercised against this default, at >= 0.116.0.
 	// +kubebuilder:default="ghcr.io/cloudnative-pg/postgresql:18-minimal-trixie"
 	// +optional
 	Postgres string `json:"postgres,omitempty"`
