@@ -47,19 +47,65 @@ type Identity struct {
 }
 
 // Postgres carries the operator-managed PostgreSQL process and init tuning taken
-// from the custom resource. Parameter/GUC assembly stays product-specific in the
-// builder and is not represented here yet.
+// from the custom resource.
 type Postgres struct {
 	// UID and GID are the process identity overrides; nil leaves the CNPG default.
 	UID *int64
 	GID *int64
 	// PostInitSQL is appended to the mandatory bootstrap SQL.
 	PostInitSQL []string
+	// Parameters are the resolved PostgreSQL GUC overrides. They start from the
+	// user-supplied values and may include product-mandated defaults contributed
+	// by the adapter (for example DocumentDB change streams adds
+	// wal_level=logical). They are merged on top of the operator's static and
+	// memory-aware defaults and below the neutral protected parameters when the
+	// builder assembles the final GUC set.
+	Parameters map[string]string
 }
 
-// FeatureGates carries the resolved feature-gate flags the builder acts on.
+// FeatureGates carries the resolved, product-neutral feature-gate flags the
+// builder acts on. Only genuinely cross-product (infrastructure) gates belong
+// here; product-specific gates are expressed through their concrete effect (for
+// example Postgres.ProtectedParameters) instead of leaking into this struct.
 type FeatureGates struct {
+	// IOUring relaxes the postgres seccomp profile and enables io_method=io_uring.
+	// It is an infrastructure concern shared across products.
 	IOUring bool
+}
+
+// (request==limit when set). Empty strings mean "unset".
+type ComponentResource struct {
+	Memory string
+	CPU    string
+}
+
+// Resource is the product-neutral pod resource envelope plus optional
+// per-container overrides. It mirrors the shape the builder carves across the
+// PostgreSQL, gateway, and OTel collector containers.
+type Resource struct {
+	// Memory and CPU are the total pod envelope (may be empty/unset).
+	Memory string
+	CPU    string
+	// Database, Gateway, and OTel optionally override individual containers.
+	Database *ComponentResource
+	Gateway  *ComponentResource
+	OTel     *ComponentResource
+}
+
+// TLS carries the resolved TLS inputs the builder renders onto the Cluster.
+type TLS struct {
+	// GatewaySecretName is the ready gateway TLS secret surfaced to the plugin.
+	// Empty when TLS is not yet provisioned.
+	GatewaySecretName string
+	// PostgresCertificates is the CNPG certificates passthrough for the Postgres
+	// server (nil when TLS is not configured).
+	PostgresCertificates *cnpgv1.CertificatesConfiguration
+}
+
+// Monitoring carries the resolved monitoring flags the builder acts on. The full
+// OTel configuration is routed through the intent in a later phase.
+type Monitoring struct {
+	Enabled bool
 }
 
 // Recovery describes a bootstrap-from-source request. A nil Recovery on Bootstrap
@@ -93,6 +139,22 @@ type ClusterIntent struct {
 
 	// Postgres is the operator-managed PostgreSQL process and init tuning.
 	Postgres Postgres
+
+	// Resource is the product-neutral pod resource envelope and per-container
+	// overrides the builder carves across containers.
+	Resource Resource
+
+	// TLS carries the resolved TLS inputs (gateway secret + Postgres certificates).
+	TLS TLS
+
+	// Monitoring carries the resolved monitoring flags.
+	Monitoring Monitoring
+
+	// LogLevel is the desired CNPG log level (empty means the builder default).
+	LogLevel string
+
+	// MaxStopDelay is the resolved CNPG max stop delay (seconds), defaults applied.
+	MaxStopDelay int32
 
 	// FeatureGates are the resolved feature-gate flags.
 	FeatureGates FeatureGates

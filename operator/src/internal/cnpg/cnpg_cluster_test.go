@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	dbpreview "github.com/documentdb/documentdb-operator/api/preview"
+	"github.com/documentdb/documentdb-operator/internal/product"
 	util "github.com/documentdb/documentdb-operator/internal/utils"
 )
 
@@ -1077,7 +1078,7 @@ func TestGetInheritedMetadataLabels(t *testing.T) {
 	}
 }
 
-func TestGetMaxStopDelayOrDefault(t *testing.T) {
+func TestMaxStopDelayFromIntent(t *testing.T) {
 	tests := []struct {
 		name       string
 		documentdb *dbpreview.DocumentDB
@@ -1127,7 +1128,7 @@ func TestGetMaxStopDelayOrDefault(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := getMaxStopDelayOrDefault(tt.documentdb)
+			result := product.DocumentDBAdapter{}.ToClusterIntent(tt.documentdb).MaxStopDelay
 
 			if result != tt.expected {
 				t.Errorf("Expected %d, got %d", tt.expected, result)
