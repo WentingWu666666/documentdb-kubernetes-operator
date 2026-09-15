@@ -210,7 +210,7 @@ Builds documentdb extension and gateway images from published DocumentDB artifac
 | **Build time** | ~5 minutes (package download + image build) |
 | **Multi-arch** | amd64 + arm64 → multi-arch manifest |
 | **Signing** | cosign keyless (OIDC) |
-| **Version detection** | Workflow input / repository dispatch payload (defaults to released `0.117.0`) |
+| **Version detection** | Workflow input / repository dispatch payload (defaults to released `0.113.0`) |
 
 The build process:
 1. Resolves the released DocumentDB version
@@ -382,9 +382,9 @@ When bumping database image versions, the following locations must be updated (a
 | `operator/documentdb-helm-chart/tests/02_sidecar_injector_test.yaml` | `DOCUMENTDB_VERSION` env value | `"0.117.0"` |
 | `operator/documentdb-helm-chart/tests/09_operator_deployment_test.yaml` | `DOCUMENTDB_VERSION` env value | `"0.117.0"` |
 | `test/e2e/tests/upgrade/helpers_test.go` | `defaultOldDocumentDBVersion` / `defaultNewDocumentDBVersion` pair | `"0.116.0"` -> `"0.117.0"` |
-| `.github/workflows/build_documentdb_images.yml` | `DEFAULT_DOCUMENTDB_VERSION`, input default | `0.117.0` |
-| `.github/workflows/release_documentdb_images.yml` | Input default | `0.117.0` |
-| `.github/dockerfiles/Dockerfile_gateway_public_image` | `SOURCE_IMAGE` ARG default | `...pg17-0.117.0` |
+| `.github/workflows/build_documentdb_images.yml` | `DEFAULT_DOCUMENTDB_VERSION`, input default | `0.113.0` |
+| `.github/workflows/release_documentdb_images.yml` | Input default | `0.113.0` |
+| `.github/dockerfiles/Dockerfile_gateway_public_image` | `SOURCE_IMAGE` ARG default | `...pg17-0.113.0` |
 
 When bumping operator versions, update:
 
