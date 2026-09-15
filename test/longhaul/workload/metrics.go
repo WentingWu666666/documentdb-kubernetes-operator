@@ -44,6 +44,11 @@ type Metrics struct {
 	// recomputed value. Non-zero => FAIL with reason "data loss".
 	ChecksumErrors atomic.Int64
 
+	// DocsPruned is the cumulative number of documents the retention pruner has
+	// deleted. It is a liveness signal for the pruner (a durable counter that
+	// survives the journal's bounded event ring), not a pass/fail oracle.
+	DocsPruned atomic.Int64
+
 	// StartTime is when this Metrics was constructed; resets on pod restart.
 	StartTime time.Time
 }
@@ -64,6 +69,7 @@ type MetricsSnapshot struct {
 	VerifyPasses      int64
 	GapsDetected      int64
 	ChecksumErrors    int64
+	DocsPruned        int64
 	Elapsed           time.Duration
 }
 
@@ -76,6 +82,7 @@ func (m *Metrics) Snapshot() MetricsSnapshot {
 		VerifyPasses:      m.VerifyPasses.Load(),
 		GapsDetected:      m.VerifyGapsDetected.Load(),
 		ChecksumErrors:    m.ChecksumErrors.Load(),
+		DocsPruned:        m.DocsPruned.Load(),
 		Elapsed:           time.Since(m.StartTime),
 	}
 }

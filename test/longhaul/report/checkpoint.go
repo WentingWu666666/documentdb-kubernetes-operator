@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -129,6 +130,7 @@ func (r *CheckpointReporter) emit(ctx context.Context, final bool) Summary {
 		"result":            resultStr,
 		"operation-status":  string(summary.OperationRun.Status),
 		"operation-results": marshalOperationResults(summary.OperationRun.Results),
+		"docs-pruned":       strconv.FormatInt(summary.Metrics.DocsPruned, 10),
 	}
 	if len(summary.OperationRun.Aggregates) > 0 {
 		data["operation-aggregates"] = marshalOperationAggregates(summary.OperationRun.Aggregates)

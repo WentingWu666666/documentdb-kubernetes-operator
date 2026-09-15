@@ -397,16 +397,17 @@ jobs:
           exit_code="${{ steps.wait.outputs.exit_code }}"
           result=$(kubectl get configmap longhaul-report -n "${DB_NS}" \
             -o jsonpath='{.data.result}' 2>/dev/null || echo "MISSING")
-          report=$(kubectl get configmap longhaul-report -n "${DB_NS}" \
-            -o jsonpath='{.data.latest-report}' 2>/dev/null || echo "MISSING")
           operation_status=$(kubectl get configmap longhaul-report -n "${DB_NS}" \
             -o json | jq -r '.data["operation-status"] // "MISSING"')
           operation_results=$(kubectl get configmap longhaul-report -n "${DB_NS}" \
             -o json | jq -r '.data["operation-results"] // "MISSING"')
+          docs_pruned=$(kubectl get configmap longhaul-report -n "${DB_NS}" \
+            -o json | jq -r '.data["docs-pruned"] // "MISSING"')
           echo "Driver exit code : ${exit_code}"
           echo "Report result    : ${result}"
           echo "Operation status : ${operation_status}"
           echo "Operation results: ${operation_results}"
+          echo "Docs pruned      : ${docs_pruned}"
 
           if [[ "${exit_code}" != "0" ]]; then
             echo "::error::Driver exited non-zero (${exit_code})."
@@ -429,11 +430,21 @@ jobs:
             echo "::error::operation-results did not show every sequenced operation PASSED in order."
             exit 1
           fi
-          if ! grep -Eq 'pruner: pruned [1-9][0-9]* docs' <<<"${report}"; then
-            echo "::error::Retention pruner did not report deleting any documents."
+          # Assert the retention pruner actually deleted documents. Uses the
+          # durable docs-pruned counter rather than grepping the rendered
+          # report, whose event log is capped at the last ~20 entries and can
+          # be dominated by transient disruption-time warnings (e.g. an
+          # InternalError while the primary is failing over) that crowd out the
+          # earlier "pruned N docs" success lines.
+          if ! [[ "${docs_pruned}" =~ ^[0-9]+$ ]]; then
+            echo "::error::docs-pruned is '${docs_pruned}', expected a number."
             exit 1
           fi
-          echo "✅ Long-haul smoke gate passed (sequence COMPLETE, all operations PASSED, report PASS, retention pruned documents)."
+          if [[ "${docs_pruned}" -le 0 ]]; then
+            echo "::error::Retention pruner deleted no documents (docs-pruned=${docs_pruned})."
+            exit 1
+          fi
+          echo "✅ Long-haul smoke gate passed (sequence COMPLETE, all operations PASSED, report PASS, retention pruned ${docs_pruned} documents)."
 
       - name: Assert data-protection verifier ran
         run: |

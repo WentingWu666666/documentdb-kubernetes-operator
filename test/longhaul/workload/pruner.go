@@ -154,6 +154,7 @@ func (p *Pruner) pruneWriter(ctx context.Context, writerID string) {
 		return
 	}
 	if deleted > 0 {
+		p.metrics.DocsPruned.Add(deleted)
 		p.journal.Info("pruner", fmt.Sprintf("pruned %d docs for writer %s (seq <= %d)", deleted, writerID, throughSeq))
 	}
 }
