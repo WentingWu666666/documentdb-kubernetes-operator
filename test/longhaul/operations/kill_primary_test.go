@@ -105,6 +105,32 @@ var _ = Describe("KillPrimaryPod", func() {
 		Expect(err).To(MatchError(ContainSubstring("expected a non-empty primary different")))
 	})
 
+	It("aborts without deleting if the primary changes before the delete", func() {
+		c := &fakeClient{
+			instancesPerNode:   2,
+			primary:            "cluster-1",
+			replacementPrimary: "cluster-9",
+		}
+		// Simulate an unrelated failover landing between the initial read and
+		// the pre-delete re-read: the first GetPrimaryInstance returns
+		// "cluster-1" and then promotes "cluster-2", so the re-read sees the
+		// changed primary. The operation must abort rather than delete the
+		// former primary and mistake the pre-existing promotion for its own.
+		c.getPrimaryHook = func() {
+			c.primary = "cluster-2"
+			c.getPrimaryHook = nil
+		}
+		gate := &successfulSteadyGate{}
+		k := NewKillPrimaryPod(c, gate, time.Second)
+
+		err := k.Execute(context.Background())
+		Expect(err).To(MatchError(ContainSubstring("unexpected external failover")))
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		Expect(c.deletedPods).To(BeEmpty(), "must not delete a pod that is no longer the primary")
+		Expect(gate.calls).To(Equal(0))
+	})
+
 	It("Execute fails without deleting when the primary is unknown", func() {
 		c := &fakeClient{instancesPerNode: 2, primaryErr: errors.New("no primary")}
 		k := NewKillPrimaryPod(c, nil, time.Second)

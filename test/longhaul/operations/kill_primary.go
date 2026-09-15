@@ -68,11 +68,30 @@ func (k *KillPrimaryPod) Execute(ctx context.Context) error {
 	recoveryCtx, cancel := context.WithTimeout(ctx, k.recovery)
 	defer cancel()
 
-	if err := k.client.DeletePod(recoveryCtx, primary); err != nil {
-		return fmt.Errorf("delete primary pod %s: %w", primary, err)
+	// Re-read the primary immediately before deleting it. GetPrimaryInstance
+	// and DeletePod are not atomic, so an unrelated failover between the two
+	// would make us delete a former primary (now a standby) while
+	// waitForPrimaryChange trivially accepts the already-completed promotion —
+	// a false pass in which no primary was actually killed. Confirming the
+	// target right before the delete shrinks that window, and keying the
+	// change/verification off the pod we actually delete removes the ambiguity.
+	target, err := k.client.GetPrimaryInstance(recoveryCtx)
+	if err != nil {
+		return fmt.Errorf("re-confirm primary before delete: %w", err)
+	}
+	if target == "" {
+		return fmt.Errorf("re-confirm primary before delete: cluster returned an empty primary pod name")
+	}
+	if target != primary {
+		return fmt.Errorf("primary changed from %q to %q before we could delete it (unexpected external failover); aborting to avoid a false pass",
+			primary, target)
 	}
 
-	if err := k.waitForPrimaryChange(recoveryCtx, primary); err != nil {
+	if err := k.client.DeletePod(recoveryCtx, target); err != nil {
+		return fmt.Errorf("delete primary pod %s: %w", target, err)
+	}
+
+	if err := k.waitForPrimaryChange(recoveryCtx, target); err != nil {
 		return err
 	}
 
@@ -86,9 +105,9 @@ func (k *KillPrimaryPod) Execute(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("verify primary after steady-state recovery: %w", err)
 	}
-	if current == "" || current == primary {
+	if current == "" || current == target {
 		return fmt.Errorf("verify primary after steady-state recovery: expected a non-empty primary different from %q, got %q",
-			primary, current)
+			target, current)
 	}
 	return nil
 }

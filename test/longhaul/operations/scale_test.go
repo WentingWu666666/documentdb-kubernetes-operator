@@ -29,6 +29,10 @@ type fakeClient struct {
 	replacementPrimary string
 	deleteErr          error
 	deletedPods        []string
+	// getPrimaryHook, if set, is invoked at the end of each GetPrimaryInstance
+	// call (under the lock). Tests use it to mutate primary between the initial
+	// read and the pre-delete re-read, simulating an unrelated failover.
+	getPrimaryHook func()
 }
 
 func (f *fakeClient) GetClusterHealth(_ context.Context) (monitor.ClusterHealth, error) {
@@ -60,7 +64,11 @@ func (f *fakeClient) UpgradeDocumentDB(_ context.Context, v string) error {
 func (f *fakeClient) GetPrimaryInstance(_ context.Context) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.primary, f.primaryErr
+	p, err := f.primary, f.primaryErr
+	if f.getPrimaryHook != nil {
+		f.getPrimaryHook()
+	}
+	return p, err
 }
 func (f *fakeClient) DeletePod(_ context.Context, name string) error {
 	f.mu.Lock()

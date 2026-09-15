@@ -175,16 +175,30 @@ func (j *Journal) RecordWriteOutcome(attemptStart time.Time, failed bool) {
 	}
 	if failed {
 		w.WriteFailures++
-		if w.WriteOutageStart.IsZero() {
+		// Track the earliest failing attempt of the current outage. Outcomes
+		// arrive in completion order, so a failure recorded later may have
+		// begun earlier than the one that opened the outage; keep the minimum
+		// so the measured outage spans from the true first failing attempt.
+		if w.WriteOutageStart.IsZero() || attemptStart.Before(w.WriteOutageStart) {
 			w.WriteOutageStart = attemptStart
 		}
 		return
 	}
 	if !w.WriteOutageStart.IsZero() {
-		if gap := attemptStart.Sub(w.WriteOutageStart); gap > w.MaxWriteOutageObserved {
-			w.MaxWriteOutageObserved = gap
+		// Writers are concurrent and each captures attemptStart before its
+		// (possibly blocking) driver call, but outcomes arrive here in
+		// completion order. A success whose attempt began at or before the
+		// current outage start carries no information that the outage has
+		// ended — it was already in flight when the outage opened — so it must
+		// neither shrink the measured outage nor clear the marker. Only a
+		// success that started strictly after the outage began proves the write
+		// path recovered.
+		if attemptStart.After(w.WriteOutageStart) {
+			if gap := attemptStart.Sub(w.WriteOutageStart); gap > w.MaxWriteOutageObserved {
+				w.MaxWriteOutageObserved = gap
+			}
+			w.WriteOutageStart = time.Time{}
 		}
-		w.WriteOutageStart = time.Time{}
 	}
 }
 

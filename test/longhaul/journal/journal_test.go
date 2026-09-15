@@ -89,6 +89,41 @@ var _ = Describe("Journal", func() {
 			Expect(j.ActiveWindow().EstimatedWriteOutage()).To(BeNumerically("~", 30*time.Second, 5*time.Millisecond))
 		})
 
+		It("ignores an out-of-order success that predates the outage start", func() {
+			j := New()
+			j.OpenDisruptionWindow("kill-primary", OutagePolicy{MustRecoverWithin: time.Minute, MaxWriteOutage: time.Minute})
+
+			base := time.Now()
+			// A slow writer began before the outage (attemptStart = base) but
+			// its success is recorded later, after a fast failure opened the
+			// outage at base+1s. The stale success must NOT clear the outage.
+			j.RecordWriteOutcome(base.Add(1*time.Second), true) // opens outage at +1s
+			j.RecordWriteOutcome(base, false)                   // earlier start, later completion
+
+			w := j.ActiveWindow()
+			Expect(w.WriteOutageStart.IsZero()).To(BeFalse(), "stale pre-outage success must not close the outage")
+			Expect(w.WriteOutageStart).To(Equal(base.Add(1 * time.Second)))
+
+			// The outage remains open and is measured to a genuine later recovery.
+			j.RecordWriteOutcome(base.Add(31*time.Second), false)
+			Expect(j.ActiveWindow().EstimatedWriteOutage()).To(BeNumerically("~", 30*time.Second, 5*time.Millisecond))
+		})
+
+		It("measures from the earliest failing attempt when failures arrive out of order", func() {
+			j := New()
+			j.OpenDisruptionWindow("kill-primary", OutagePolicy{MustRecoverWithin: time.Minute, MaxWriteOutage: time.Minute})
+
+			base := time.Now()
+			// A failure that began earlier is recorded after one that began
+			// later; the outage must span from the earliest failing attempt.
+			j.RecordWriteOutcome(base.Add(2*time.Second), true)
+			j.RecordWriteOutcome(base, true)
+			Expect(j.ActiveWindow().WriteOutageStart).To(Equal(base))
+
+			j.RecordWriteOutcome(base.Add(10*time.Second), false)
+			Expect(j.ActiveWindow().EstimatedWriteOutage()).To(BeNumerically("~", 10*time.Second, 5*time.Millisecond))
+		})
+
 		It("opening a new window closes the previous active window", func() {
 			j := New()
 			j.OpenDisruptionWindow("op1", DefaultOutagePolicy())
