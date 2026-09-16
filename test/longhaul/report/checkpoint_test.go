@@ -60,6 +60,40 @@ var _ = Describe("CheckpointReporter", func() {
 		Expect(cm.Data["result"]).To(Equal("FAIL"))
 	})
 
+	It("latches a failure incident so a restart cannot erase the FAIL verdict", func() {
+		cs := fake.NewSimpleClientset()
+
+		// Process A observes a failure, writes FAIL, and exits.
+		procA := NewCheckpointReporter(cs, "ns", time.Second, func(bool) Summary {
+			return Summary{Result: ResultFail, FailReason: "data loss: 3 gaps detected"}
+		})
+		procA.emit(context.Background(), false)
+
+		cm, err := cs.CoreV1().ConfigMaps("ns").Get(context.Background(), ConfigMapName, metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cm.Data["result"]).To(Equal("FAIL"))
+		Expect(cm.Data["incident-latched"]).To(Equal("true"))
+		Expect(cm.Data["incident-count"]).To(Equal("1"))
+		Expect(cm.Data["first-failure-reason"]).To(Equal("data loss: 3 gaps detected"))
+		Expect(cm.Data["first-failure-time"]).NotTo(BeEmpty())
+
+		// The Deployment restarts. Process B starts with fresh in-memory state
+		// (healthy) and writes an intermediate RUNNING checkpoint against the
+		// same ConfigMap. The transient result flips to RUNNING, but the durable
+		// incident state must be preserved so a monitor still sees the failure.
+		procB := NewCheckpointReporter(cs, "ns", time.Second, func(bool) Summary {
+			return Summary{Result: ResultPass, Duration: time.Minute}
+		})
+		procB.emit(context.Background(), false)
+
+		cm, err = cs.CoreV1().ConfigMaps("ns").Get(context.Background(), ConfigMapName, metav1.GetOptions{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(cm.Data["result"]).To(Equal("RUNNING"), "fresh process resets the transient verdict")
+		Expect(cm.Data["incident-latched"]).To(Equal("true"), "incident must survive the restart")
+		Expect(cm.Data["incident-count"]).To(Equal("1"), "count is monotonic across restarts")
+		Expect(cm.Data["first-failure-reason"]).To(Equal("data loss: 3 gaps detected"))
+	})
+
 	It("Updates the existing ConfigMap on subsequent emits", func() {
 		cs := fake.NewSimpleClientset()
 

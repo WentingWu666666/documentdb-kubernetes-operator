@@ -7,6 +7,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"sync"
@@ -16,6 +17,13 @@ import (
 	"github.com/documentdb/documentdb-operator/test/longhaul/journal"
 	"github.com/documentdb/documentdb-operator/test/longhaul/monitor"
 )
+
+// errRunInterrupted signals that an operation did not complete because the
+// parent run context was cancelled — e.g. a bounded random-mode run reached its
+// configured duration while an operation was still waiting for recovery. This
+// is a normal shutdown, not an operation failure, and must never produce a FAIL
+// verdict.
+var errRunInterrupted = errors.New("run interrupted by context cancellation")
 
 // Operation defines the interface for a disruptive operation.
 type Operation interface {
@@ -107,6 +115,12 @@ func (s *Scheduler) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := s.tryExecute(ctx); err != nil {
+				if errors.Is(err, errRunInterrupted) {
+					// A bounded run reached its configured duration during an
+					// operation. That is a clean shutdown, not a failure, so
+					// exit quietly without emitting a FAIL-inducing error.
+					return
+				}
 				// A terminal operation failure ends the run immediately so the
 				// FAIL verdict is emitted promptly. In production MaxDuration is
 				// unbounded, so without this the loop would run forever and the
@@ -156,6 +170,11 @@ func (s *Scheduler) tryExecute(ctx context.Context) error {
 	s.opsExecuted++
 	s.mu.Unlock()
 
+	if errors.Is(err, errRunInterrupted) {
+		// Normal shutdown that landed mid-operation: do not record it as an
+		// operation failure. Propagate so the run loop exits quietly.
+		return err
+	}
 	s.recordExecution(op.Name(), err)
 	return err
 }
@@ -207,6 +226,15 @@ func (s *Scheduler) executeOp(ctx context.Context, op Operation) error {
 	window := s.journal.CloseDisruptionWindow()
 
 	if err != nil {
+		// A bounded run that reaches its configured duration cancels the parent
+		// context, which propagates into the operation's recovery wait as an
+		// error. Distinguish that normal shutdown from a genuine operation
+		// failure: a healthy timed run must not FAIL merely because its
+		// deadline landed while an operation was in flight.
+		if ctx.Err() != nil {
+			s.journal.Info("scheduler", fmt.Sprintf("operation %s interrupted by shutdown: %v", op.Name(), err))
+			return errRunInterrupted
+		}
 		s.journal.Error("scheduler", fmt.Sprintf("operation %s failed: %v", op.Name(), err))
 		return fmt.Errorf("operation %s execute failed: %w", op.Name(), err)
 	}

@@ -37,6 +37,23 @@ func (f *fakeOp) Execute(_ context.Context) error {
 }
 func (f *fakeOp) OutagePolicy() journal.OutagePolicy { return journal.DefaultOutagePolicy() }
 
+// cancelOp cancels the run context from inside Execute and then returns the
+// resulting context error, mimicking a bounded random-mode run whose configured
+// duration expires while an operation is still waiting for recovery.
+type cancelOp struct {
+	name   string
+	cancel context.CancelFunc
+}
+
+func (c *cancelOp) Name() string                                { return c.name }
+func (c *cancelOp) Weight() int                                 { return 1 }
+func (c *cancelOp) Precondition(context.Context) (bool, string) { return true, "" }
+func (c *cancelOp) Execute(ctx context.Context) error {
+	c.cancel()
+	return ctx.Err()
+}
+func (c *cancelOp) OutagePolicy() journal.OutagePolicy { return journal.DefaultOutagePolicy() }
+
 func newSchedulerForTest(ops ...Operation) *Scheduler {
 	return &Scheduler{
 		operations: ops,
@@ -112,6 +129,44 @@ var _ = Describe("Scheduler", func() {
 				}
 			}
 			Expect(sawError).To(BeTrue(), "expected scheduler ERROR event on Execute failure")
+		})
+
+		It("classifies parent-context cancellation as a clean interruption, not a failure", func() {
+			// A bounded run whose duration expires mid-operation cancels the
+			// parent context, which surfaces from Execute as a context error.
+			// That normal shutdown must not be reported as an operation failure.
+			ctx, cancel := context.WithCancel(context.Background())
+			op := &cancelOp{name: "drain", cancel: cancel}
+			s := newSchedulerForTest(op)
+
+			err := s.executeOp(ctx, op)
+			Expect(errors.Is(err, errRunInterrupted)).To(BeTrue(),
+				"a bounded run ending during an operation must not be a failure")
+
+			// It is logged informationally, never as a scheduler ERROR that
+			// would surface as a FAIL verdict.
+			for _, e := range s.journal.Events() {
+				Expect(e.Level).NotTo(Equal(journal.LevelError),
+					"parent-context cancellation must not emit a scheduler ERROR")
+			}
+		})
+
+		It("does not record an interrupted operation as a failure in run state", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			op := &cancelOp{name: "drain", cancel: cancel}
+			s := NewScheduler([]Operation{op}, nil, journal.New(), time.Hour)
+
+			// Mirror tryExecute's terminal branch: an errRunInterrupted result
+			// must skip recordExecution so run state stays non-failed.
+			err := s.executeOp(ctx, op)
+			Expect(errors.Is(err, errRunInterrupted)).To(BeTrue())
+			if !errors.Is(err, errRunInterrupted) {
+				s.recordExecution(op.Name(), err)
+			}
+
+			snapshot := s.Snapshot()
+			Expect(snapshot.Status).NotTo(Equal(RunStatusFailed))
+			Expect(snapshot.HasFailure()).To(BeFalse())
 		})
 	})
 

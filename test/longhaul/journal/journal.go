@@ -162,11 +162,13 @@ func (j *Journal) appendClosedWindow(window DisruptionWindow) {
 // RecordWriteOutcome reports the result of a single write attempt to the active
 // disruption window so it can measure the real write-outage duration from
 // timestamps. attemptStart is when the write attempt began (before the driver
-// call, which may block for the full server-selection timeout during an
-// outage). A failure opens or extends the current outage; a success closes it,
-// recording the first-failure -> first-success span as a candidate for the
-// window's longest observed outage. No-op when no window is active.
-func (j *Journal) RecordWriteOutcome(attemptStart time.Time, failed bool) {
+// call) and attemptEnd is when it returned; during an outage the driver call
+// can block for the full server-selection timeout, so the two can be tens of
+// seconds apart. A failure opens or extends the current outage; a success
+// closes it, recording the first-failure -> recovering-success-completion span
+// as a candidate for the window's longest observed outage. No-op when no window
+// is active.
+func (j *Journal) RecordWriteOutcome(attemptStart, attemptEnd time.Time, failed bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	w := j.activeWindow
@@ -194,7 +196,11 @@ func (j *Journal) RecordWriteOutcome(attemptStart time.Time, failed bool) {
 		// success that started strictly after the outage began proves the write
 		// path recovered.
 		if attemptStart.After(w.WriteOutageStart) {
-			if gap := attemptStart.Sub(w.WriteOutageStart); gap > w.MaxWriteOutageObserved {
+			// The outage lasts until the recovering write actually completes,
+			// not until it started: during a failover the successful call can
+			// block in server selection for many seconds before returning.
+			// Measure to attemptEnd so an over-budget outage is not undercounted.
+			if gap := attemptEnd.Sub(w.WriteOutageStart); gap > w.MaxWriteOutageObserved {
 				w.MaxWriteOutageObserved = gap
 			}
 			w.WriteOutageStart = time.Time{}
