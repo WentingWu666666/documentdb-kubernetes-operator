@@ -199,8 +199,10 @@ jobs:
           # latched state is monotonic and survives restarts.
           INCIDENT_LATCHED="${{ steps.report-check.outputs.incident_latched }}"
           INCIDENT_COUNT="${{ steps.report-check.outputs.incident_count }}"
+          LAST_REASON="${{ steps.report-check.outputs.last_failure_reason }}"
+          LAST_TIME="${{ steps.report-check.outputs.last_failure_time }}"
           if [ "$INCIDENT_LATCHED" = "true" ] || { [ -n "$INCIDENT_COUNT" ] && [ "$INCIDENT_COUNT" -gt 0 ] 2>/dev/null; }; then
-            echo "::error::Long haul test latched a failure incident (count=${INCIDENT_COUNT}, last='${{ steps.report-check.outputs.last_failure_reason }}' at ${{ steps.report-check.outputs.last_failure_time }}). A driver restart may have reset the live verdict to RUNNING."
+            echo "::error::Long haul test latched a failure incident (count=${INCIDENT_COUNT}, last='${LAST_REASON}' at ${LAST_TIME}). A driver restart may have reset the live verdict to RUNNING."
             exit 1
           fi
 
