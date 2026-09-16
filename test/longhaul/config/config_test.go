@@ -20,7 +20,7 @@ var _ = Describe("Config", func() {
 			Expect(cfg.OperatorNamespace).To(Equal("documentdb-operator"))
 			Expect(cfg.NumWriters).To(Equal(5))
 			Expect(cfg.OpCooldown).To(Equal(5 * time.Minute))
-			Expect(cfg.RecoveryTimeout).To(Equal(5 * time.Minute))
+			Expect(cfg.RecoveryTimeout).To(Equal(10 * time.Minute))
 			Expect(cfg.SteadyStateWait).To(Equal(60 * time.Second))
 			Expect(cfg.OperationMode).To(Equal(OperationModeRandom))
 			Expect(cfg.OperationSequence).To(BeEmpty())

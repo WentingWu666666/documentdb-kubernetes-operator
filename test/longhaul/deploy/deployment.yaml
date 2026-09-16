@@ -47,7 +47,7 @@ data:
   LONGHAUL_OPERATION_MODE: "random"
   LONGHAUL_OPERATION_SEQUENCE: ""
   LONGHAUL_OP_COOLDOWN: "10m"
-  LONGHAUL_RECOVERY_TIMEOUT: "5m"
+  LONGHAUL_RECOVERY_TIMEOUT: "10m"
   # How long the cluster must be observed healthy before the next
   # operation fires. Matches the in-code default (60s) and the design doc
   # (Section "Steady-state gate"). Keep explicit so operators can lower

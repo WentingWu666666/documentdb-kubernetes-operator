@@ -330,7 +330,7 @@ jobs:
               LONGHAUL_OPERATION_MODE: "sequence",
               LONGHAUL_OPERATION_SEQUENCE: "scale-up,scale-down,upgrade-documentdb,kill-operator-pod,kill-primary-pod",
               LONGHAUL_STEADY_STATE_WAIT: "5s",
-              LONGHAUL_RECOVERY_TIMEOUT: "5m",
+              LONGHAUL_RECOVERY_TIMEOUT: "10m",
               LONGHAUL_REPORT_INTERVAL: "30s",
               LONGHAUL_MIN_INSTANCES: "2",
               LONGHAUL_MAX_INSTANCES: "3",

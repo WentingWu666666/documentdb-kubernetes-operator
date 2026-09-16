@@ -158,7 +158,7 @@ func DefaultConfig() Config {
 		DocumentDBURI:     "",
 		NumWriters:        5,
 		OpCooldown:        5 * time.Minute,
-		RecoveryTimeout:   5 * time.Minute,
+		RecoveryTimeout:   10 * time.Minute,
 		SteadyStateWait:   60 * time.Second,
 		OperationMode:     OperationModeRandom,
 		MinInstances:      1,

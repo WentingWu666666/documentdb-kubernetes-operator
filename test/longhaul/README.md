@@ -133,7 +133,7 @@ All configuration is via environment variables.
 | `LONGHAUL_OPERATION_MODE` | No | `random` | Operation runner: `random`, `sequence`, or `disabled`. |
 | `LONGHAUL_OPERATION_SEQUENCE` | No | empty | Comma-separated stable operation names. Required and used only in `sequence` mode; rejected in `random`/`disabled` mode. Whitespace is trimmed, and duplicate or unknown names are rejected. |
 | `LONGHAUL_OP_COOLDOWN` | No | `5m` | Minimum spacing between operations. Random mode only — `sequence` mode paces ops by the steady-state/recovery gates. |
-| `LONGHAUL_RECOVERY_TIMEOUT` | No | `5m` | Max wait for cluster recovery after an operation. |
+| `LONGHAUL_RECOVERY_TIMEOUT` | No | `10m` | Max wait for cluster recovery after an operation. |
 | `LONGHAUL_STEADY_STATE_WAIT` | No | `60s` | Continuous healthy duration required by the steady-state gate. |
 | `LONGHAUL_MIN_INSTANCES` | No | `1` | Minimum `spec.instancesPerNode` for scale-down operations (CRD lower bound: 1). |
 | `LONGHAUL_MAX_INSTANCES` | No | `3` | Maximum `spec.instancesPerNode` for scale-up operations (CRD upper bound: 3). |
