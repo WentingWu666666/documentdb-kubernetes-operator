@@ -68,9 +68,15 @@ func NoOutagePolicy(recovery time.Duration) OutagePolicy {
 // an *ungraceful* failover that detects the lost pod, then promotes a standby.
 // The write path is interrupted for exactly one primary handover.
 //
-// Sized to comfortably cover a healthy single CNPG failover; heuristic pending
-// calibration against real long-haul runs.
-const PrimaryHandoverWriteOutage = 30 * time.Second
+// Unlike a graceful switchover, an ungraceful failover cannot begin promoting a
+// standby until CNPG notices the primary pod is gone, so the detection latency
+// is added on top of the promotion itself. Calibrated against a real
+// kill-primary on a resource-constrained kind runner, which measured a ~30.3s
+// handover outage; the budget carries headroom over that so a healthy failover
+// on a slow CI runner is not flagged while a gross regression (a multi-minute
+// write stall) still is. The longer, full-topology recovery is bounded
+// separately by MustRecoverWithin.
+const PrimaryHandoverWriteOutage = 60 * time.Second
 
 // PrimaryHandoverPolicy is the outage budget for operations whose write path is
 // interrupted for a single primary handover (see PrimaryHandoverWriteOutage).
