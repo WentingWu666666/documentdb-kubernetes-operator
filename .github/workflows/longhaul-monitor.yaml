@@ -232,7 +232,7 @@ jobs:
     timeout-minutes: 15
     needs: check-longhaul  # Only upgrade if cluster is healthy
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up kubeconfig
         env:
