@@ -24,11 +24,11 @@ import (
 
 // GetCnpgClusterSpec renders the Cluster for a DocumentDB instance. The
 // documentdbImage argument overrides the resolved extension image; pass "" to
-// use the image resolved from the instance. Retained for callers that supply an
-// explicit extension image.
+// use the image resolved from the instance. req and serviceAccountName are
+// accepted for call-site compatibility but no longer consumed: object
+// coordinates now come from the intent's Identity, and the service account is
+// not read by the renderer.
 func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, documentdbImage, serviceAccountName, storageClass string, isPrimaryRegion bool, log logr.Logger) *cnpgv1.Cluster {
-	_ = req                // object coordinates now come from the intent's Identity (adapter-derived)
-	_ = serviceAccountName // no longer consumed by the renderer; kept for call-site compatibility
 	intent := product.DocumentDBAdapter{}.ToClusterIntent(documentdb)
 	if documentdbImage != "" {
 		intent.Images.PostgresExtension = documentdbImage
