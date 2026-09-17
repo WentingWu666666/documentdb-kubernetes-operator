@@ -32,16 +32,11 @@ type Topology struct {
 }
 
 // Storage describes the persistent volume request. StorageClass is resolved by
-// the controller from replication context and passed to the builder separately,
-// so it is not part of this adapter-derived model yet.
+// the controller from replication context and passed to the builder separately
+// (via RenderContext), so it is not part of this adapter-derived model.
 type Storage struct {
 	// PvcSize is the persistent volume claim size (for example "10Gi").
 	PvcSize string
-
-	// StorageClass is the resolved storage class for the data volume. Empty
-	// means the cluster default. This is a runtime input the reconciler resolves
-	// (for example from the replication context), not a value read from the CR.
-	StorageClass string
 }
 
 // Identity carries the owning custom resource's identity for owner references
@@ -157,8 +152,8 @@ type ClusterIntent struct {
 	// LogLevel is the desired CNPG log level (empty means the builder default).
 	LogLevel string
 
-	// MaxStopDelay is the resolved CNPG max stop delay (seconds), defaults applied.
-	MaxStopDelay int32
+	// Timeouts carries the resolved CNPG process timeouts (defaults applied).
+	Timeouts Timeouts
 
 	// FeatureGates are the resolved feature-gate flags.
 	FeatureGates FeatureGates
@@ -169,16 +164,37 @@ type ClusterIntent struct {
 	// CredentialSecret is the resolved credential secret name.
 	CredentialSecret string
 
-	// SidecarInjectorPlugin and WALReplicaPlugin are the resolved CNPG plugin
-	// names to wire onto the Cluster.
-	SidecarInjectorPlugin string
-	WALReplicaPlugin      string
+	// Plugins carries the resolved CNPG plugin names to wire onto the Cluster.
+	Plugins Plugins
 
 	// Product is the profile this intent was produced from.
 	Product ProductProfile
+}
 
-	// IsPrimaryRegion indicates whether this render targets the primary region.
-	// It gates whether recovery bootstrap is applied. This is a runtime input the
-	// reconciler resolves (from the replication context), not read from the CR.
+// Timeouts carries the resolved CNPG process timeouts. It mirrors the CRD's
+// Timeouts grouping; values here are resolved (CNPG defaults applied).
+type Timeouts struct {
+	// StopDelay is the resolved CNPG max stop delay in seconds.
+	StopDelay int32
+}
+
+// Plugins carries the resolved CNPG plugin names. It mirrors the CRD's Plugins
+// grouping; values here are resolved (profile defaults applied, spec honored).
+type Plugins struct {
+	// SidecarInjectorName is the CNPG sidecar injector plugin name.
+	SidecarInjectorName string
+	// WalReplicaName is the CNPG WAL replica plugin name used for cross-cluster
+	// replication.
+	WalReplicaName string
+}
+
+// RenderContext carries the runtime, reconcile-time inputs the builder needs
+// that are NOT part of the product's desired state (and therefore not on the
+// ClusterIntent). The reconciler resolves these from the replication context.
+type RenderContext struct {
+	// StorageClass is the resolved data-volume storage class ("" = cluster default).
+	StorageClass string
+	// IsPrimaryRegion reports whether this render targets the primary region; it
+	// gates whether recovery bootstrap is applied.
 	IsPrimaryRegion bool
 }

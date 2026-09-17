@@ -34,21 +34,21 @@ func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, docu
 		intent.Images.PostgresExtension = documentdbImage
 	}
 	// Storage class and region role are runtime inputs from the
-	// reconcile/replication context, not read from the CR.
-	intent.Storage.StorageClass = storageClass
-	intent.IsPrimaryRegion = isPrimaryRegion
-	return GetCnpgClusterSpecFromIntent(intent, log)
+	// reconcile/replication context, not part of the product's desired state.
+	rctx := product.RenderContext{StorageClass: storageClass, IsPrimaryRegion: isPrimaryRegion}
+	return GetCnpgClusterSpecFromIntent(intent, rctx, log)
 }
 
 // GetCnpgClusterSpecFromIntent renders a CNPG Cluster from a product-neutral
-// ClusterIntent. This is the seam the reconciler drives: every render input —
-// including the object coordinates (Identity), storage class, and region role —
-// comes from the intent rather than from loose parameters or product-specific
-// lookups.
-func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, log logr.Logger) *cnpgv1.Cluster {
+// ClusterIntent plus a RenderContext. The intent carries the product's resolved
+// desired state; the RenderContext carries reconcile-time inputs (storage class,
+// region role) that are not part of any product's spec. This is the seam the
+// reconciler drives: every render input comes from these two arguments rather
+// than from loose parameters or product-specific lookups.
+func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, rctx product.RenderContext, log logr.Logger) *cnpgv1.Cluster {
 	split := ComputeResourceSplitFromResource(intent.Resource, intent.Monitoring.Enabled, DefaultSplitConfig())
 
-	sidecarPluginName := intent.SidecarInjectorPlugin
+	sidecarPluginName := intent.Plugins.SidecarInjectorName
 
 	gatewayImage := intent.Images.Gateway
 	log.Info("Creating CNPG cluster with gateway image", "gatewayImage", gatewayImage, "documentdbName", intent.Identity.Name)
@@ -57,7 +57,7 @@ func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, log logr.Logger)
 
 	// Configure storage class - use specified storage class or nil for default
 	var storageClassPointer *string
-	if sc := intent.Storage.StorageClass; sc != "" {
+	if sc := rctx.StorageClass; sc != "" {
 		storageClassPointer = &sc
 	}
 
@@ -141,7 +141,7 @@ func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, log logr.Logger)
 					}}
 				}(),
 				PostgresConfiguration: buildPostgresConfiguration(MergeParametersResolved(intent.Postgres.Parameters, intent.FeatureGates, split.PostgresMemoryBytes), extensionImageSource),
-				Bootstrap:             bootstrapConfigurationFromIntent(intent, intent.IsPrimaryRegion, log),
+				Bootstrap:             bootstrapConfigurationFromIntent(intent, rctx.IsPrimaryRegion, log),
 				LogLevel:              cmp.Or(intent.LogLevel, "info"),
 				Certificates:          intent.TLS.PostgresCertificates,
 				Backup: &cnpgv1.BackupConfiguration{
@@ -153,7 +153,7 @@ func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, log logr.Logger)
 				Affinity:  intent.Topology.Affinity,
 				Resources: buildResourceRequirements(split.Postgres),
 			}
-			spec.MaxStopDelay = intent.MaxStopDelay
+			spec.MaxStopDelay = intent.Timeouts.StopDelay
 			applyPostgresProcessIdentity(&spec, intent)
 			applyIOUringSeccomp(&spec, intent)
 			applyOtelMonitorRoleFromIntent(&spec, intent.Monitoring.Enabled)

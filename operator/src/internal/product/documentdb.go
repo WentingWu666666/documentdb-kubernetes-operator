@@ -91,6 +91,11 @@ func (a DocumentDBAdapter) ToClusterIntent(db *dbpreview.DocumentDB) ClusterInte
 		sidecarPlugin = db.Spec.Plugins.SidecarInjectorName
 	}
 
+	walReplicaPlugin := p.WALReplicaPlugin
+	if db.Spec.Plugins != nil && db.Spec.Plugins.WalReplicaName != "" {
+		walReplicaPlugin = db.Spec.Plugins.WalReplicaName
+	}
+
 	var postgresImage string
 	if db.Spec.Image != nil {
 		postgresImage = db.Spec.Image.Postgres
@@ -162,20 +167,22 @@ func (a DocumentDBAdapter) ToClusterIntent(db *dbpreview.DocumentDB) ClusterInte
 			APIVersion: db.APIVersion,
 			Kind:       db.Kind,
 		},
-		Postgres:     pg,
-		Resource:     ResourceFromSpec(db.Spec.Resource),
-		TLS:          tls,
-		Monitoring:   MonitoringConfigFromSpec(db.Spec.Monitoring),
-		LogLevel:     db.Spec.LogLevel,
-		MaxStopDelay: maxStopDelay,
+		Postgres:   pg,
+		Resource:   ResourceFromSpec(db.Spec.Resource),
+		TLS:        tls,
+		Monitoring: MonitoringConfigFromSpec(db.Spec.Monitoring),
+		LogLevel:   db.Spec.LogLevel,
+		Timeouts:   Timeouts{StopDelay: maxStopDelay},
 		FeatureGates: FeatureGates{
 			IOUring: dbpreview.IsFeatureGateEnabled(db, dbpreview.FeatureGateIOUring),
 		},
-		Bootstrap:             bootstrap,
-		CredentialSecret:      credentialSecret,
-		SidecarInjectorPlugin: sidecarPlugin,
-		WALReplicaPlugin:      p.WALReplicaPlugin,
-		Product:               p,
+		Bootstrap:        bootstrap,
+		CredentialSecret: credentialSecret,
+		Plugins: Plugins{
+			SidecarInjectorName: sidecarPlugin,
+			WalReplicaName:      walReplicaPlugin,
+		},
+		Product: p,
 	}
 }
 
