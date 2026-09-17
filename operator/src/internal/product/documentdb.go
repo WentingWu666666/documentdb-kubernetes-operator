@@ -157,6 +157,7 @@ func (a DocumentDBAdapter) ToClusterIntent(db *dbpreview.DocumentDB) ClusterInte
 		},
 		Identity: Identity{
 			Name:       db.Name,
+			Namespace:  db.Namespace,
 			UID:        db.UID,
 			APIVersion: db.APIVersion,
 			Kind:       db.Kind,

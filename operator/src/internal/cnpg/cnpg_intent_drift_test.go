@@ -204,7 +204,7 @@ func TestRenderIntentSeamNoDrift(t *testing.T) {
 				if p := otelcfg.ResolvePrometheusPort(mon); p > 0 {
 					wantPort = fmt.Sprintf("%d", p)
 				}
-				if data, err := otelcfg.GenerateConfigMapData(db.Name, req.Namespace, mon); err == nil {
+				if data, err := otelcfg.GenerateConfigMapData(db.Name, db.Namespace, mon); err == nil {
 					wantHash = otelcfg.HashConfigMapData(data)
 				}
 			}

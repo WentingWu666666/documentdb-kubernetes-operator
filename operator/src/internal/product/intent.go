@@ -37,12 +37,18 @@ type Topology struct {
 type Storage struct {
 	// PvcSize is the persistent volume claim size (for example "10Gi").
 	PvcSize string
+
+	// StorageClass is the resolved storage class for the data volume. Empty
+	// means the cluster default. This is a runtime input the reconciler resolves
+	// (for example from the replication context), not a value read from the CR.
+	StorageClass string
 }
 
 // Identity carries the owning custom resource's identity for owner references
 // and resource labels.
 type Identity struct {
 	Name       string
+	Namespace  string
 	UID        types.UID
 	APIVersion string
 	Kind       string
@@ -170,4 +176,9 @@ type ClusterIntent struct {
 
 	// Product is the profile this intent was produced from.
 	Product ProductProfile
+
+	// IsPrimaryRegion indicates whether this render targets the primary region.
+	// It gates whether recovery bootstrap is applied. This is a runtime input the
+	// reconciler resolves (from the replication context), not read from the CR.
+	IsPrimaryRegion bool
 }

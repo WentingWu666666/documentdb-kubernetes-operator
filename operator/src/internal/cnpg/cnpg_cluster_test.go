@@ -264,6 +264,10 @@ var _ = Describe("GetCnpgClusterSpec", func() {
 		req.Namespace = "default"
 
 		documentdb := &dbpreview.DocumentDB{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-cluster",
+				Namespace: "default",
+			},
 			Spec: dbpreview.DocumentDBSpec{
 				InstancesPerNode: 3,
 				Image: &dbpreview.ImageSpec{

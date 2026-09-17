@@ -27,18 +27,25 @@ import (
 // use the image resolved from the instance. Retained for callers that supply an
 // explicit extension image.
 func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, documentdbImage, serviceAccountName, storageClass string, isPrimaryRegion bool, log logr.Logger) *cnpgv1.Cluster {
+	_ = req                // object coordinates now come from the intent's Identity (adapter-derived)
+	_ = serviceAccountName // no longer consumed by the renderer; kept for call-site compatibility
 	intent := product.DocumentDBAdapter{}.ToClusterIntent(documentdb)
 	if documentdbImage != "" {
 		intent.Images.PostgresExtension = documentdbImage
 	}
-	return GetCnpgClusterSpecFromIntent(req, intent, serviceAccountName, storageClass, isPrimaryRegion, log)
+	// Storage class and region role are runtime inputs from the
+	// reconcile/replication context, not read from the CR.
+	intent.Storage.StorageClass = storageClass
+	intent.IsPrimaryRegion = isPrimaryRegion
+	return GetCnpgClusterSpecFromIntent(intent, log)
 }
 
 // GetCnpgClusterSpecFromIntent renders a CNPG Cluster from a product-neutral
-// ClusterIntent. This is the seam the reconciler drives: product-varying values
-// (images, credential secret, plugin name) come from the intent rather than from
-// product-specific lookups.
-func GetCnpgClusterSpecFromIntent(req ctrl.Request, intent product.ClusterIntent, serviceAccountName, storageClass string, isPrimaryRegion bool, log logr.Logger) *cnpgv1.Cluster {
+// ClusterIntent. This is the seam the reconciler drives: every render input —
+// including the object coordinates (Identity), storage class, and region role —
+// comes from the intent rather than from loose parameters or product-specific
+// lookups.
+func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, log logr.Logger) *cnpgv1.Cluster {
 	split := ComputeResourceSplitFromResource(intent.Resource, intent.Monitoring.Enabled, DefaultSplitConfig())
 
 	sidecarPluginName := intent.SidecarInjectorPlugin
@@ -50,8 +57,8 @@ func GetCnpgClusterSpecFromIntent(req ctrl.Request, intent product.ClusterIntent
 
 	// Configure storage class - use specified storage class or nil for default
 	var storageClassPointer *string
-	if storageClass != "" {
-		storageClassPointer = &storageClass
+	if sc := intent.Storage.StorageClass; sc != "" {
+		storageClassPointer = &sc
 	}
 
 	// Set ImageVolumeSource.PullPolicy for the extension image when configured.
@@ -65,8 +72,8 @@ func GetCnpgClusterSpecFromIntent(req ctrl.Request, intent product.ClusterIntent
 
 	return &cnpgv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      req.Name,
-			Namespace: req.Namespace,
+			Name:      intent.Identity.Name,
+			Namespace: intent.Identity.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion:         intent.Identity.APIVersion,
@@ -121,7 +128,7 @@ func GetCnpgClusterSpecFromIntent(req ctrl.Request, intent product.ClusterIntent
 						// Compute config hash for change detection. The operator triggers a
 						// rolling restart (via restart annotation) when plugin parameters
 						// change, ensuring pods pick up new config.
-						if configData, err := otelcfg.GenerateConfigMapData(intent.Identity.Name, req.Namespace, intent.Monitoring); err == nil {
+						if configData, err := otelcfg.GenerateConfigMapData(intent.Identity.Name, intent.Identity.Namespace, intent.Monitoring); err == nil {
 							params["otelConfigHash"] = otelcfg.HashConfigMapData(configData)
 						} else {
 							log.Error(err, "Failed to generate OTel config hash; config changes may not trigger rolling restart")
@@ -134,7 +141,7 @@ func GetCnpgClusterSpecFromIntent(req ctrl.Request, intent product.ClusterIntent
 					}}
 				}(),
 				PostgresConfiguration: buildPostgresConfiguration(MergeParametersResolved(intent.Postgres.Parameters, intent.FeatureGates, split.PostgresMemoryBytes), extensionImageSource),
-				Bootstrap:             bootstrapConfigurationFromIntent(intent, isPrimaryRegion, log),
+				Bootstrap:             bootstrapConfigurationFromIntent(intent, intent.IsPrimaryRegion, log),
 				LogLevel:              cmp.Or(intent.LogLevel, "info"),
 				Certificates:          intent.TLS.PostgresCertificates,
 				Backup: &cnpgv1.BackupConfiguration{
