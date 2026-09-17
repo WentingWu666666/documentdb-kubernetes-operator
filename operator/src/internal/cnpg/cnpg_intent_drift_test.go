@@ -5,14 +5,18 @@ package cnpg
 
 import (
 	"cmp"
+	"fmt"
 	"reflect"
 	"testing"
 
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	dbpreview "github.com/documentdb/documentdb-operator/api/preview"
+	otelcfg "github.com/documentdb/documentdb-operator/internal/otel"
+	"github.com/documentdb/documentdb-operator/internal/product"
 	util "github.com/documentdb/documentdb-operator/internal/utils"
 )
 
@@ -108,6 +112,33 @@ func TestRenderIntentSeamNoDrift(t *testing.T) {
 				TLS: &dbpreview.TLSStatus{Ready: true, SecretName: "gw-tls-secret"},
 			},
 		},
+		"monitoring-prometheus": {
+			ObjectMeta: metav1.ObjectMeta{Name: "mon-prom"},
+			Spec: dbpreview.DocumentDBSpec{
+				InstancesPerNode: 1,
+				Resource:         dbpreview.Resource{Storage: dbpreview.StorageConfiguration{PvcSize: "10Gi"}},
+				Monitoring: &dbpreview.MonitoringSpec{
+					Enabled: true,
+					Exporter: &dbpreview.ExporterSpec{
+						Prometheus: &dbpreview.PrometheusExporterSpec{Port: 9090},
+					},
+				},
+			},
+		},
+		"monitoring-otlp-and-prometheus": {
+			ObjectMeta: metav1.ObjectMeta{Name: "mon-both"},
+			Spec: dbpreview.DocumentDBSpec{
+				InstancesPerNode: 1,
+				Resource:         dbpreview.Resource{Storage: dbpreview.StorageConfiguration{PvcSize: "10Gi"}},
+				Monitoring: &dbpreview.MonitoringSpec{
+					Enabled: true,
+					Exporter: &dbpreview.ExporterSpec{
+						OTLP:       &dbpreview.OTLPExporterSpec{Endpoint: "otel-collector:4317"},
+						Prometheus: &dbpreview.PrometheusExporterSpec{},
+					},
+				},
+			},
+		},
 	}
 
 	for name, db := range cases {
@@ -162,6 +193,37 @@ func TestRenderIntentSeamNoDrift(t *testing.T) {
 			assertParamEq(t, spec.Plugins[0].Parameters, util.PLUGIN_PARAM_GATEWAY_MEMORY_LIMIT, split.Gateway.MemoryLimit)
 			assertParamEq(t, spec.Plugins[0].Parameters, util.PLUGIN_PARAM_GATEWAY_CPU_REQUEST, split.Gateway.CPURequest)
 			assertParamEq(t, spec.Plugins[0].Parameters, util.PLUGIN_PARAM_GATEWAY_CPU_LIMIT, split.Gateway.CPULimit)
+
+			// OTel plugin params: the intent-driven path must equal the direct
+			// otel computation from the monitoring spec (config map name, prometheus
+			// port, and — critically — the config hash that drives pod restarts).
+			mon := product.MonitoringConfigFromSpec(db.Spec.Monitoring)
+			wantCM, wantPort, wantHash := "", "", ""
+			if mon.Enabled {
+				wantCM = otelcfg.ConfigMapName(db.Name)
+				if p := otelcfg.ResolvePrometheusPort(mon); p > 0 {
+					wantPort = fmt.Sprintf("%d", p)
+				}
+				if data, err := otelcfg.GenerateConfigMapData(db.Name, req.Namespace, mon); err == nil {
+					wantHash = otelcfg.HashConfigMapData(data)
+				}
+			}
+			assertParamEq(t, spec.Plugins[0].Parameters, "otelConfigMapName", wantCM)
+			assertParamEq(t, spec.Plugins[0].Parameters, "prometheusPort", wantPort)
+			assertParamEq(t, spec.Plugins[0].Parameters, "otelConfigHash", wantHash)
+
+			// OTel monitor role: present (EnsurePresent) only when monitoring is on.
+			gotRolePresent := false
+			if spec.Managed != nil {
+				for _, r := range spec.Managed.Roles {
+					if r.Name == otelcfg.MonitorRoleName && r.Ensure == cnpgv1.EnsurePresent {
+						gotRolePresent = true
+					}
+				}
+			}
+			if gotRolePresent != mon.Enabled {
+				t.Errorf("otel monitor role presence drift: got %v want %v", gotRolePresent, mon.Enabled)
+			}
 		})
 	}
 }

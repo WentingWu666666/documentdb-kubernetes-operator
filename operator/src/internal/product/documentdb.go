@@ -7,6 +7,7 @@ import (
 	"os"
 
 	dbpreview "github.com/documentdb/documentdb-operator/api/preview"
+	otelcfg "github.com/documentdb/documentdb-operator/internal/otel"
 	util "github.com/documentdb/documentdb-operator/internal/utils"
 )
 
@@ -160,12 +161,10 @@ func (a DocumentDBAdapter) ToClusterIntent(db *dbpreview.DocumentDB) ClusterInte
 			APIVersion: db.APIVersion,
 			Kind:       db.Kind,
 		},
-		Postgres: pg,
-		Resource: ResourceFromSpec(db.Spec.Resource),
-		TLS:      tls,
-		Monitoring: Monitoring{
-			Enabled: db.Spec.Monitoring != nil && db.Spec.Monitoring.Enabled,
-		},
+		Postgres:     pg,
+		Resource:     ResourceFromSpec(db.Spec.Resource),
+		TLS:          tls,
+		Monitoring:   MonitoringConfigFromSpec(db.Spec.Monitoring),
 		LogLevel:     db.Spec.LogLevel,
 		MaxStopDelay: maxStopDelay,
 		FeatureGates: FeatureGates{
@@ -189,6 +188,27 @@ func ResourceFromSpec(res dbpreview.Resource) Resource {
 		Gateway:  componentFromSpec(res.Gateway),
 		OTel:     componentFromSpec(res.OTel),
 	}
+}
+
+// MonitoringConfigFromSpec maps the DocumentDB monitoring spec onto the
+// product-neutral OTel collector config carried on the intent. It is the single
+// CRD->neutral mapping shared by the builder and the controller's ConfigMap
+// reconciliation, so generated collector config (and its hash) stays consistent.
+func MonitoringConfigFromSpec(spec *dbpreview.MonitoringSpec) otelcfg.MonitoringConfig {
+	if spec == nil {
+		return otelcfg.MonitoringConfig{}
+	}
+	mc := otelcfg.MonitoringConfig{Enabled: spec.Enabled}
+	if spec.Exporter != nil {
+		if spec.Exporter.OTLP != nil {
+			mc.OTLPEndpoint = spec.Exporter.OTLP.Endpoint
+		}
+		if spec.Exporter.Prometheus != nil {
+			mc.Prometheus = true
+			mc.PrometheusPort = spec.Exporter.Prometheus.Port
+		}
+	}
+	return mc
 }
 
 func componentFromSpec(c *dbpreview.ComponentResources) *ComponentResource {

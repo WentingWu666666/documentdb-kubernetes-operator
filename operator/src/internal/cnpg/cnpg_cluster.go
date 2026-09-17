@@ -31,14 +31,14 @@ func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, docu
 	if documentdbImage != "" {
 		intent.Images.PostgresExtension = documentdbImage
 	}
-	return GetCnpgClusterSpecFromIntent(req, documentdb, intent, serviceAccountName, storageClass, isPrimaryRegion, log)
+	return GetCnpgClusterSpecFromIntent(req, intent, serviceAccountName, storageClass, isPrimaryRegion, log)
 }
 
 // GetCnpgClusterSpecFromIntent renders a CNPG Cluster from a product-neutral
 // ClusterIntent. This is the seam the reconciler drives: product-varying values
 // (images, credential secret, plugin name) come from the intent rather than from
 // product-specific lookups.
-func GetCnpgClusterSpecFromIntent(req ctrl.Request, documentdb *dbpreview.DocumentDB, intent product.ClusterIntent, serviceAccountName, storageClass string, isPrimaryRegion bool, log logr.Logger) *cnpgv1.Cluster {
+func GetCnpgClusterSpecFromIntent(req ctrl.Request, intent product.ClusterIntent, serviceAccountName, storageClass string, isPrimaryRegion bool, log logr.Logger) *cnpgv1.Cluster {
 	split := ComputeResourceSplitFromResource(intent.Resource, intent.Monitoring.Enabled, DefaultSplitConfig())
 
 	sidecarPluginName := intent.SidecarInjectorPlugin
@@ -110,18 +110,18 @@ func GetCnpgClusterSpecFromIntent(req ctrl.Request, documentdb *dbpreview.Docume
 					// Config hash triggers operator-initiated rolling restart on config changes.
 					if split.MonitoringEnabled {
 						params["otelCollectorImage"] = util.DEFAULT_OTEL_COLLECTOR_IMAGE
-						params["otelConfigMapName"] = otelcfg.ConfigMapName(documentdb.Name)
+						params["otelConfigMapName"] = otelcfg.ConfigMapName(intent.Identity.Name)
 						addPluginParamIfSet(params, util.PLUGIN_PARAM_OTEL_MEMORY_REQUEST, split.OTel.MemoryRequest)
 						addPluginParamIfSet(params, util.PLUGIN_PARAM_OTEL_MEMORY_LIMIT, split.OTel.MemoryLimit)
 						addPluginParamIfSet(params, util.PLUGIN_PARAM_OTEL_CPU_REQUEST, split.OTel.CPURequest)
 						addPluginParamIfSet(params, util.PLUGIN_PARAM_OTEL_CPU_LIMIT, split.OTel.CPULimit)
-						if promPort := otelcfg.ResolvePrometheusPort(documentdb.Spec.Monitoring); promPort > 0 {
+						if promPort := otelcfg.ResolvePrometheusPort(intent.Monitoring); promPort > 0 {
 							params["prometheusPort"] = fmt.Sprintf("%d", promPort)
 						}
 						// Compute config hash for change detection. The operator triggers a
 						// rolling restart (via restart annotation) when plugin parameters
 						// change, ensuring pods pick up new config.
-						if configData, err := otelcfg.GenerateConfigMapData(documentdb.Name, req.Namespace, documentdb.Spec.Monitoring); err == nil {
+						if configData, err := otelcfg.GenerateConfigMapData(intent.Identity.Name, req.Namespace, intent.Monitoring); err == nil {
 							params["otelConfigHash"] = otelcfg.HashConfigMapData(configData)
 						} else {
 							log.Error(err, "Failed to generate OTel config hash; config changes may not trigger rolling restart")
@@ -149,7 +149,7 @@ func GetCnpgClusterSpecFromIntent(req ctrl.Request, documentdb *dbpreview.Docume
 			spec.MaxStopDelay = intent.MaxStopDelay
 			applyPostgresProcessIdentity(&spec, intent)
 			applyIOUringSeccomp(&spec, intent)
-			applyOtelMonitorRole(&spec, documentdb)
+			applyOtelMonitorRoleFromIntent(&spec, intent.Monitoring.Enabled)
 
 			return spec
 		}(),
@@ -363,15 +363,12 @@ func applyIOUringSeccomp(spec *cnpgv1.ClusterSpec, intent product.ClusterIntent)
 // PostgreSQL host authentication currently uses trust, so a generated password
 // would not be checked. Disable the role password explicitly until authentication
 // is tightened rather than creating an unused credential and widening Secret RBAC.
-func applyOtelMonitorRole(spec *cnpgv1.ClusterSpec, documentdb *dbpreview.DocumentDB) {
-	if documentdb == nil {
-		return
-	}
+func applyOtelMonitorRoleFromIntent(spec *cnpgv1.ClusterSpec, monitoringEnabled bool) {
 	if spec.Managed == nil {
 		spec.Managed = &cnpgv1.ManagedConfiguration{}
 	}
 	role := absentOtelMonitorRole()
-	if documentdb.Spec.Monitoring != nil && documentdb.Spec.Monitoring.Enabled {
+	if monitoringEnabled {
 		// The current health query is SELECT 1, so the role needs LOGIN only
 		// and is not granted broad monitoring memberships.
 		role = cnpgv1.RoleConfiguration{

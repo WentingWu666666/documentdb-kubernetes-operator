@@ -7,6 +7,8 @@ import (
 	cnpgv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	otelcfg "github.com/documentdb/documentdb-operator/internal/otel"
 )
 
 // Images holds the fully-resolved container images for a cluster.
@@ -66,7 +68,8 @@ type Postgres struct {
 // FeatureGates carries the resolved, product-neutral feature-gate flags the
 // builder acts on. Only genuinely cross-product (infrastructure) gates belong
 // here; product-specific gates are expressed through their concrete effect (for
-// example Postgres.ProtectedParameters) instead of leaking into this struct.
+// example DocumentDB change streams contributing Postgres.Parameters
+// wal_level=logical) instead of leaking into this struct.
 type FeatureGates struct {
 	// IOUring relaxes the postgres seccomp profile and enables io_method=io_uring.
 	// It is an infrastructure concern shared across products.
@@ -100,12 +103,6 @@ type TLS struct {
 	// PostgresCertificates is the CNPG certificates passthrough for the Postgres
 	// server (nil when TLS is not configured).
 	PostgresCertificates *cnpgv1.CertificatesConfiguration
-}
-
-// Monitoring carries the resolved monitoring flags the builder acts on. The full
-// OTel configuration is routed through the intent in a later phase.
-type Monitoring struct {
-	Enabled bool
 }
 
 // Recovery describes a bootstrap-from-source request. A nil Recovery on Bootstrap
@@ -147,8 +144,9 @@ type ClusterIntent struct {
 	// TLS carries the resolved TLS inputs (gateway secret + Postgres certificates).
 	TLS TLS
 
-	// Monitoring carries the resolved monitoring flags.
-	Monitoring Monitoring
+	// Monitoring carries the resolved, product-neutral OTel collector config the
+	// builder renders (config map name/hash + Prometheus port) on the fly.
+	Monitoring otelcfg.MonitoringConfig
 
 	// LogLevel is the desired CNPG log level (empty means the builder default).
 	LogLevel string
