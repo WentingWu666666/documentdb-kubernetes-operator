@@ -77,7 +77,8 @@ type FeatureGates struct {
 	IOUring bool
 }
 
-// (request==limit when set). Empty strings mean "unset".
+// ComponentResource is a per-container resource override (request==limit when
+// set). Empty strings mean "unset".
 type ComponentResource struct {
 	Memory string
 	CPU    string

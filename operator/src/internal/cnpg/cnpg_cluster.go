@@ -33,8 +33,6 @@ func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, docu
 	if documentdbImage != "" {
 		intent.Images.PostgresExtension = documentdbImage
 	}
-	// Storage class and region role are runtime inputs from the
-	// reconcile/replication context, not part of the product's desired state.
 	return GetCnpgClusterSpecFromIntent(intent, storageClass, isPrimaryRegion, log)
 }
 
@@ -55,8 +53,8 @@ func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, storageClass str
 
 	// Configure storage class - use specified storage class or nil for default
 	var storageClassPointer *string
-	if sc := storageClass; sc != "" {
-		storageClassPointer = &sc
+	if storageClass != "" {
+		storageClassPointer = &storageClass
 	}
 
 	// Set ImageVolumeSource.PullPolicy for the extension image when configured.
