@@ -33,7 +33,7 @@ type Topology struct {
 
 // Storage describes the persistent volume request. StorageClass is resolved by
 // the controller from replication context and passed to the builder separately
-// (via RenderContext), so it is not part of this adapter-derived model.
+// (as a render parameter), so it is not part of this adapter-derived model.
 type Storage struct {
 	// PvcSize is the persistent volume claim size (for example "10Gi").
 	PvcSize string
@@ -186,15 +186,4 @@ type Plugins struct {
 	// WalReplicaName is the CNPG WAL replica plugin name used for cross-cluster
 	// replication.
 	WalReplicaName string
-}
-
-// RenderContext carries the runtime, reconcile-time inputs the builder needs
-// that are NOT part of the product's desired state (and therefore not on the
-// ClusterIntent). The reconciler resolves these from the replication context.
-type RenderContext struct {
-	// StorageClass is the resolved data-volume storage class ("" = cluster default).
-	StorageClass string
-	// IsPrimaryRegion reports whether this render targets the primary region; it
-	// gates whether recovery bootstrap is applied.
-	IsPrimaryRegion bool
 }

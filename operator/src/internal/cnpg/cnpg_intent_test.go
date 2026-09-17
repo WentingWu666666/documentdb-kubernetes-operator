@@ -46,7 +46,7 @@ var _ = Describe("GetCnpgClusterSpecFromIntent", func() {
 
 		intent.Identity.Name = "test-cluster"
 		intent.Identity.Namespace = "default"
-		result := GetCnpgClusterSpecFromIntent(intent, product.RenderContext{IsPrimaryRegion: true}, log)
+		result := GetCnpgClusterSpecFromIntent(intent, "", true, log)
 
 		Expect(result.Spec.PostgresConfiguration.Extensions[0].ImageVolumeSource.Reference).To(Equal("reg/ext:test"))
 		Expect(result.Spec.Plugins[0].Name).To(Equal("custom-injector.example.io"))
@@ -61,7 +61,7 @@ var _ = Describe("GetCnpgClusterSpecFromIntent", func() {
 		intent.Identity.Name = "test-cluster"
 		intent.Identity.Namespace = "default"
 
-		fromIntent := GetCnpgClusterSpecFromIntent(intent, product.RenderContext{IsPrimaryRegion: true}, log)
+		fromIntent := GetCnpgClusterSpecFromIntent(intent, "", true, log)
 		fromWrapper := GetCnpgClusterSpec(newRequest(), documentdb, "", "test-sa", "", true, log)
 
 		Expect(fromIntent.Spec.PostgresConfiguration.Extensions[0].ImageVolumeSource.Reference).

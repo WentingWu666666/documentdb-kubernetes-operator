@@ -153,13 +153,9 @@ func (r *DocumentDBReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// create the CNPG Cluster
 	intent := product.DocumentDBAdapter{}.ToClusterIntent(documentdb)
-	rctx := product.RenderContext{
-		StorageClass:    replicationContext.StorageClass,
-		IsPrimaryRegion: replicationContext.IsPrimary(),
-	}
 
 	currentCnpgCluster := &cnpgv1.Cluster{}
-	desiredCnpgCluster := cnpg.GetCnpgClusterSpecFromIntent(intent, rctx, logger)
+	desiredCnpgCluster := cnpg.GetCnpgClusterSpecFromIntent(intent, replicationContext.StorageClass, replicationContext.IsPrimary(), logger)
 
 	if replicationContext.IsReplicating() {
 		err = r.AddClusterReplicationToClusterSpec(ctx, documentdb, replicationContext, desiredCnpgCluster)

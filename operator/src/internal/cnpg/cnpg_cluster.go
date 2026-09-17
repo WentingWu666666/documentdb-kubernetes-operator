@@ -35,17 +35,15 @@ func GetCnpgClusterSpec(req ctrl.Request, documentdb *dbpreview.DocumentDB, docu
 	}
 	// Storage class and region role are runtime inputs from the
 	// reconcile/replication context, not part of the product's desired state.
-	rctx := product.RenderContext{StorageClass: storageClass, IsPrimaryRegion: isPrimaryRegion}
-	return GetCnpgClusterSpecFromIntent(intent, rctx, log)
+	return GetCnpgClusterSpecFromIntent(intent, storageClass, isPrimaryRegion, log)
 }
 
 // GetCnpgClusterSpecFromIntent renders a CNPG Cluster from a product-neutral
-// ClusterIntent plus a RenderContext. The intent carries the product's resolved
-// desired state; the RenderContext carries reconcile-time inputs (storage class,
-// region role) that are not part of any product's spec. This is the seam the
-// reconciler drives: every render input comes from these two arguments rather
-// than from loose parameters or product-specific lookups.
-func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, rctx product.RenderContext, log logr.Logger) *cnpgv1.Cluster {
+// ClusterIntent plus reconcile-time inputs (storage class, region role) that
+// are not part of any product's spec. This is the seam the reconciler drives:
+// every render input comes from these arguments rather than from loose
+// parameters or product-specific lookups.
+func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, storageClass string, isPrimaryRegion bool, log logr.Logger) *cnpgv1.Cluster {
 	split := ComputeResourceSplitFromResource(intent.Resource, intent.Monitoring.Enabled, DefaultSplitConfig())
 
 	sidecarPluginName := intent.Plugins.SidecarInjectorName
@@ -57,7 +55,7 @@ func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, rctx product.Ren
 
 	// Configure storage class - use specified storage class or nil for default
 	var storageClassPointer *string
-	if sc := rctx.StorageClass; sc != "" {
+	if sc := storageClass; sc != "" {
 		storageClassPointer = &sc
 	}
 
@@ -141,7 +139,7 @@ func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, rctx product.Ren
 					}}
 				}(),
 				PostgresConfiguration: buildPostgresConfiguration(MergeParametersResolved(intent.Postgres.Parameters, intent.FeatureGates, split.PostgresMemoryBytes), extensionImageSource),
-				Bootstrap:             bootstrapConfigurationFromIntent(intent, rctx.IsPrimaryRegion, log),
+				Bootstrap:             bootstrapConfigurationFromIntent(intent, isPrimaryRegion, log),
 				LogLevel:              cmp.Or(intent.LogLevel, "info"),
 				Certificates:          intent.TLS.PostgresCertificates,
 				Backup: &cnpgv1.BackupConfiguration{
