@@ -83,7 +83,7 @@ func GetCnpgClusterSpecFromIntent(intent product.ClusterIntent, storageClass str
 		},
 		Spec: func() cnpgv1.ClusterSpec {
 			spec := cnpgv1.ClusterSpec{
-				Instances:           intent.Topology.Instances,
+				Instances:           intent.Topology.InstancesPerNode,
 				ImageName:           intent.Images.Postgres,
 				ImagePullSecrets:    toCNPGImagePullSecrets(intent.Images.PullSecrets),
 				PrimaryUpdateMethod: cnpgv1.PrimaryUpdateMethodSwitchover,

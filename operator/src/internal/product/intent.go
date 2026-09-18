@@ -25,8 +25,10 @@ type Images struct {
 
 // Topology describes the cluster shape and scheduling.
 type Topology struct {
-	// Instances is the number of PostgreSQL instances in the cluster.
-	Instances int
+	// NodeCount is the number of nodes (shards) in the cluster.
+	NodeCount int
+	// InstancesPerNode is the number of PostgreSQL instances per node.
+	InstancesPerNode int
 	// Affinity is the CNPG affinity/anti-affinity passthrough.
 	Affinity cnpgv1.AffinityConfiguration
 }

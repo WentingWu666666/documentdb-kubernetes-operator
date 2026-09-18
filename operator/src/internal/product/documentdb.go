@@ -154,8 +154,9 @@ func (a DocumentDBAdapter) ToClusterIntent(db *dbpreview.DocumentDB) ClusterInte
 			PullSecrets:       db.Spec.ImagePullSecrets,
 		},
 		Topology: Topology{
-			Instances: db.Spec.InstancesPerNode,
-			Affinity:  db.Spec.Affinity,
+			NodeCount:        db.Spec.NodeCount,
+			InstancesPerNode: db.Spec.InstancesPerNode,
+			Affinity:         db.Spec.Affinity,
 		},
 		Storage: Storage{
 			PvcSize: db.Spec.Resource.Storage.PvcSize,

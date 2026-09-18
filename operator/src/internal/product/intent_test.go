@@ -90,8 +90,8 @@ func TestToClusterIntentTopologyStorageIdentity(t *testing.T) {
 
 	intent := a.ToClusterIntent(db)
 
-	if intent.Topology.Instances != 3 {
-		t.Errorf("Topology.Instances = %d, want 3", intent.Topology.Instances)
+	if intent.Topology.InstancesPerNode != 3 {
+		t.Errorf("Topology.InstancesPerNode = %d, want 3", intent.Topology.InstancesPerNode)
 	}
 	if intent.Storage.PvcSize != "20Gi" {
 		t.Errorf("Storage.PvcSize = %q, want 20Gi", intent.Storage.PvcSize)
