@@ -27,8 +27,8 @@ func DocumentDBProfile() ProductProfile {
 	}
 }
 
-// DocumentDBAdapter is the first product adapter. It maps the DocumentDB custom
-// resource onto the product-neutral model consumed by the reconciler.
+// DocumentDBAdapter maps the DocumentDB custom resource onto the product-neutral
+// model consumed by the reconciler.
 type DocumentDBAdapter struct{}
 
 // Profile returns the DocumentDB product profile.

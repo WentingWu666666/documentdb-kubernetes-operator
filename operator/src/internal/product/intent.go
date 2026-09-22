@@ -123,8 +123,7 @@ type Bootstrap struct {
 
 // ClusterIntent is the product-neutral desired state the reconciler renders into
 // a CNPG Cluster. Product adapters populate it from their custom resource; the
-// reconciler consumes it without product-branding logic. Fields are added to
-// this struct as the builder is progressively rewired onto the seam.
+// reconciler consumes it without product-branding logic.
 type ClusterIntent struct {
 	// Images are the resolved extension, gateway, and postgres images.
 	Images Images

@@ -102,25 +102,13 @@ func protectedParameters(gates product.FeatureGates) map[string]string {
 	return params
 }
 
-// MergeParameters merges all parameter sources in priority order (last write wins):
+// MergeParametersResolved merges all parameter sources in priority order (last
+// write wins):
 //  1. StaticDefaults
 //  2. ComputeMemoryAwareDefaults
-//  3. Resolved parameters (user overrides plus product-mandated defaults such as
-//     change streams' wal_level=logical, supplied by the adapter)
+//  3. userParams (adapter-resolved: user overrides plus product-mandated defaults
+//     such as change streams' wal_level=logical)
 //  4. ProtectedParameters (always wins)
-//
-// It delegates parameter resolution to the DocumentDB adapter so wal_level and
-// any future product defaults have a single source of truth shared with the
-// intent-driven builder.
-func MergeParameters(documentdb *dbpreview.DocumentDB, memoryLimitBytes int64) map[string]string {
-	intent := product.DocumentDBAdapter{}.ToClusterIntent(documentdb)
-	return MergeParametersResolved(intent.Postgres.Parameters, intent.FeatureGates, memoryLimitBytes)
-}
-
-// MergeParametersResolved merges the parameter sources from product-neutral
-// inputs. userParams are the adapter-resolved parameters (user overrides plus any
-// product-mandated defaults). It is the seam the builder drives; the *DocumentDB
-// wrapper above is retained for direct callers and tests.
 func MergeParametersResolved(userParams map[string]string, gates product.FeatureGates, memoryLimitBytes int64) map[string]string {
 	result := make(map[string]string)
 

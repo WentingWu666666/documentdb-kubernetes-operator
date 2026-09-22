@@ -212,8 +212,8 @@ func bootstrapConfigurationFromIntent(intent product.ClusterIntent, isPrimaryReg
 	return defaultBootstrapConfigurationFromIntent(intent)
 }
 
-// getBootstrapConfiguration adapts a DocumentDB instance onto the intent-based
-// bootstrap builder. Retained for direct callers that hold the custom resource.
+// getBootstrapConfiguration builds the bootstrap configuration for a DocumentDB
+// instance via the intent-based builder.
 func getBootstrapConfiguration(documentdb *dbpreview.DocumentDB, isPrimaryRegion bool, log logr.Logger) *cnpgv1.BootstrapConfiguration {
 	return bootstrapConfigurationFromIntent(product.DocumentDBAdapter{}.ToClusterIntent(documentdb), isPrimaryRegion, log)
 }
@@ -234,8 +234,8 @@ func defaultBootstrapConfigurationFromIntent(intent product.ClusterIntent) *cnpg
 	}
 }
 
-// getDefaultBootstrapConfiguration adapts a DocumentDB instance onto the
-// intent-based default bootstrap builder. Retained for direct callers.
+// getDefaultBootstrapConfiguration builds the default bootstrap configuration for
+// a DocumentDB instance via the intent-based builder.
 func getDefaultBootstrapConfiguration(documentdb *dbpreview.DocumentDB) *cnpgv1.BootstrapConfiguration {
 	return defaultBootstrapConfigurationFromIntent(product.DocumentDBAdapter{}.ToClusterIntent(documentdb))
 }

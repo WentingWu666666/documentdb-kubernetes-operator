@@ -9,7 +9,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	dbpreview "github.com/documentdb/documentdb-operator/api/preview"
 	"github.com/documentdb/documentdb-operator/internal/product"
 	util "github.com/documentdb/documentdb-operator/internal/utils"
 )
@@ -85,9 +84,9 @@ func DefaultSplitConfig() SplitConfig {
 	}
 }
 
-// ComputeResourceSplit resolves how the pod memory and CPU envelopes
-// (spec.resource.memory / spec.resource.cpu) are divided across the PostgreSQL,
-// gateway, and (when monitoring is enabled) OTel collector containers.
+// ComputeResourceSplitFromResource resolves how the pod memory and CPU envelopes
+// (resource.memory / resource.cpu) are divided across the PostgreSQL, gateway,
+// and (when monitoring is enabled) OTel collector containers.
 //
 // The envelope is OPTIONAL. For each dimension:
 //   - If the envelope is set, the operator carves it: the gateway and OTel
@@ -101,16 +100,8 @@ func DefaultSplitConfig() SplitConfig {
 //     PostgreSQL remainder) can only be derived when the envelope is set, so the
 //     omitted-envelope path requires those to be explicit — see ValidateResources.
 //
-// Legacy behavior is preserved: when neither the envelope nor any per-container
-// value is set for a dimension, that dimension is left unmanaged (no limits).
-func ComputeResourceSplit(documentdb *dbpreview.DocumentDB, cfg SplitConfig) ResourceSplit {
-	monitoring := documentdb.Spec.Monitoring != nil && documentdb.Spec.Monitoring.Enabled
-	return ComputeResourceSplitFromResource(product.ResourceFromSpec(documentdb.Spec.Resource), monitoring, cfg)
-}
-
-// ComputeResourceSplitFromResource resolves the pod resource carve-out from the
-// product-neutral Resource model. It is the seam the builder drives; the
-// *DocumentDB wrapper above is retained for direct callers and tests.
+// When neither the envelope nor any per-container value is set for a dimension,
+// that dimension is left unmanaged (no limits).
 func ComputeResourceSplitFromResource(res product.Resource, monitoring bool, cfg SplitConfig) ResourceSplit {
 	envelopeBytes := parseMemoryToBytes(res.Memory)
 	split := ResourceSplit{MonitoringEnabled: monitoring}
