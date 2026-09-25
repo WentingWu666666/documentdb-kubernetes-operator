@@ -8,16 +8,6 @@ replicaCount: 1
 # When empty, the operator falls back to its compiled-in defaults (see constants.go).
 documentDbVersion: "0.117.0"
 
-# Gateway image pull policy for the gateway sidecar container.
-# Valid values: Always, IfNotPresent, Never. Defaults to IfNotPresent if not set.
-gatewayImagePullPolicy: ""
-
-# DocumentDB extension image pull policy for the ImageVolume.
-# Valid values: Always, IfNotPresent, Never. If not set, Kubernetes default behavior is used.
-# This sets ImageVolumeSource.PullPolicy on the CNPG extension configuration
-# (see operator/src/internal/cnpg/cnpg_cluster.go).
-documentDbImagePullPolicy: ""
-
 serviceAccount:
   create: true
   automount: true
@@ -45,16 +35,44 @@ walReplica: false  # Set to true to deploy the WAL replica plugin
 imagePullSecrets: []
 
 image:
+  # Default registry prefix. Applied to any `repository` below that is a bare
+  # path (no host). Set this once to move all images to another registry, e.g.
+  # a private or mirrored registry. Default is the public GHCR registry.
+  # A `repository` that already includes a host (has "." or ":", or is
+  # "localhost") is used as-is and ignores this prefix — that's how you point a
+  # single image at a different registry.
+  registry: ghcr.io
+
+  # --- Operator (control-plane) images. tag defaults to Chart.AppVersion. ---
   documentdbk8soperator:
-    repository: ghcr.io/documentdb/documentdb-kubernetes-operator/operator
-    # Pinned image tags use IfNotPresent to avoid unnecessary registry pulls on pod restart.
+    repository: documentdb/documentdb-kubernetes-operator/operator
     pullPolicy: IfNotPresent
   sidecarinjector:
-    repository: ghcr.io/documentdb/documentdb-kubernetes-operator/sidecar
+    repository: documentdb/documentdb-kubernetes-operator/sidecar
     pullPolicy: IfNotPresent
   walreplica:
-    repository: ghcr.io/documentdb/documentdb-kubernetes-operator/wal-replica
+    repository: documentdb/documentdb-kubernetes-operator/wal-replica
     pullPolicy: IfNotPresent
+
+  # --- Data-plane images. tag defaults to documentDbVersion (above). ---
+  documentdb:
+    repository: documentdb/documentdb-kubernetes-operator/documentdb
+    pullPolicy: IfNotPresent
+  gateway:
+    repository: documentdb/documentdb-kubernetes-operator/gateway
+    pullPolicy: IfNotPresent
+
+  # --- Extra images. Default to a built-in image; set a repository to override.
+  # Same rule as above: a bare path gets the `registry` prefix, a full ref
+  # (with a host) is used as-is. ---
+  otelCollector:
+    # Empty = operator's built-in default.
+    repository: ""
+    tag: ""
+  postgres:
+    # Empty = operator's built-in default.
+    repository: ""
+    tag: ""
 
 # ---------------------------------------------------------------------------
 # Preflight checks

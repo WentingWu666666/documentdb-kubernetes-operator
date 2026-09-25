@@ -70,7 +70,7 @@ spec:
         - --server-key=/server/tls.key
         - --client-cert=/client/tls.crt
         - --server-address=:9090
-        image: "{{ .Values.image.sidecarinjector.repository }}:{{ .Values.image.sidecarinjector.tag | default .Chart.AppVersion }}"
+        image: "{{ include "documentdb.imageRef" (dict "registry" .Values.image.registry "repo" .Values.image.sidecarinjector.repository "tag" (.Values.image.sidecarinjector.tag | default .Chart.AppVersion)) }}"
         imagePullPolicy: "{{ .Values.image.sidecarinjector.pullPolicy }}"
         name: cnpg-i-sidecar-injector
         {{- with .Values.sidecarInjector.containerSecurityContext }}

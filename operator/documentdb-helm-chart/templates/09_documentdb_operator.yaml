@@ -47,7 +47,7 @@ spec:
       {{- end }}
       containers:
       - name: documentdb-operator
-        image: "{{ .Values.image.documentdbk8soperator.repository }}:{{ .Values.image.documentdbk8soperator.tag | default .Chart.AppVersion }}"
+        image: "{{ include "documentdb.imageRef" (dict "registry" .Values.image.registry "repo" .Values.image.documentdbk8soperator.repository "tag" (.Values.image.documentdbk8soperator.tag | default .Chart.AppVersion)) }}"
         imagePullPolicy: "{{ .Values.image.documentdbk8soperator.pullPolicy }}"
         {{- with .Values.operator.containerSecurityContext }}
         securityContext:
@@ -115,13 +115,34 @@ spec:
         - name: DOCUMENTDB_VERSION
           value: "{{ .Values.documentDbVersion }}"
         {{- end }}
-        {{- if .Values.gatewayImagePullPolicy }}
-        - name: GATEWAY_IMAGE_PULL_POLICY
-          value: "{{ .Values.gatewayImagePullPolicy }}"
+        # Data-plane image repositories (host+path). The operator composes the
+        # final extension/gateway image using DOCUMENTDB_VERSION as the tag.
+        {{- if .Values.image.documentdb.repository }}
+        - name: DOCUMENTDB_EXTENSION_IMAGE_REPO
+          value: "{{ include "documentdb.imageRef" (dict "registry" .Values.image.registry "repo" .Values.image.documentdb.repository "tag" "") }}"
         {{- end }}
-        {{- if .Values.documentDbImagePullPolicy }}
+        {{- if .Values.image.gateway.repository }}
+        - name: GATEWAY_IMAGE_REPO
+          value: "{{ include "documentdb.imageRef" (dict "registry" .Values.image.registry "repo" .Values.image.gateway.repository "tag" "") }}"
+        {{- end }}
+        # Extra images: composed via the same registry-prefix rule. Only set when
+        # a repository is given; otherwise the operator uses its compiled-in
+        # default (otel) or defers to CNPG (postgres).
+        {{- if .Values.image.otelCollector.repository }}
+        - name: OTEL_COLLECTOR_IMAGE
+          value: "{{ include "documentdb.imageRef" (dict "registry" .Values.image.registry "repo" .Values.image.otelCollector.repository "tag" .Values.image.otelCollector.tag) }}"
+        {{- end }}
+        {{- if .Values.image.postgres.repository }}
+        - name: POSTGRES_IMAGE
+          value: "{{ include "documentdb.imageRef" (dict "registry" .Values.image.registry "repo" .Values.image.postgres.repository "tag" .Values.image.postgres.tag) }}"
+        {{- end }}
+        {{- if .Values.image.gateway.pullPolicy }}
+        - name: GATEWAY_IMAGE_PULL_POLICY
+          value: "{{ .Values.image.gateway.pullPolicy }}"
+        {{- end }}
+        {{- if .Values.image.documentdb.pullPolicy }}
         - name: DOCUMENTDB_IMAGE_PULL_POLICY
-          value: "{{ .Values.documentDbImagePullPolicy }}"
+          value: "{{ .Values.image.documentdb.pullPolicy }}"
         {{- end }}
         {{- if .Values.operator.ioUring.seccompProfile }}
         - name: DOCUMENTDB_IOURING_SECCOMP_PROFILE

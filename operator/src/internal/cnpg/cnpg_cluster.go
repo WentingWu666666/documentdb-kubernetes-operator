@@ -109,7 +109,7 @@ func GetCnpgClusterSpecFromIntent(req ctrl.Request, documentdb *dbpreview.Docume
 					// Sidecar is only injected when monitoring is enabled.
 					// Config hash triggers operator-initiated rolling restart on config changes.
 					if split.MonitoringEnabled {
-						params["otelCollectorImage"] = util.DEFAULT_OTEL_COLLECTOR_IMAGE
+						params["otelCollectorImage"] = util.OtelCollectorImage()
 						params["otelConfigMapName"] = otelcfg.ConfigMapName(documentdb.Name)
 						addPluginParamIfSet(params, util.PLUGIN_PARAM_OTEL_MEMORY_REQUEST, split.OTel.MemoryRequest)
 						addPluginParamIfSet(params, util.PLUGIN_PARAM_OTEL_MEMORY_LIMIT, split.OTel.MemoryLimit)

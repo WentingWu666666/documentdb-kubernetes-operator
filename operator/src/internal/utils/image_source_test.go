@@ -1,0 +1,50 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+package util
+
+import "testing"
+
+// TestImageRepoGettersDefault verifies the getters return the compiled-in
+// defaults when their env overrides are unset, preserving existing behavior.
+func TestImageRepoGettersDefault(t *testing.T) {
+	cases := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"ExtensionImageRepo", ExtensionImageRepo(), DOCUMENTDB_EXTENSION_IMAGE_REPO},
+		{"GatewayImageRepo", GatewayImageRepo(), GATEWAY_IMAGE_REPO},
+		{"OtelCollectorImage", OtelCollectorImage(), DEFAULT_OTEL_COLLECTOR_IMAGE},
+		{"PostgresImage", PostgresImage(), ""},
+	}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("%s = %q, want %q", c.name, c.got, c.want)
+		}
+	}
+}
+
+// TestImageRepoGettersEnvOverride verifies each getter honors its env override.
+func TestImageRepoGettersEnvOverride(t *testing.T) {
+	t.Setenv(DOCUMENTDB_EXTENSION_IMAGE_REPO_ENV, "mcr.microsoft.com/documentdb/documentdb")
+	t.Setenv(GATEWAY_IMAGE_REPO_ENV, "mcr.microsoft.com/documentdb/gateway")
+	t.Setenv(OTEL_COLLECTOR_IMAGE_ENV, "mcr.microsoft.com/oss/otel/opentelemetry-collector-contrib:0.149.0")
+	t.Setenv(POSTGRES_IMAGE_ENV, "mcr.microsoft.com/oss/cloudnative-pg/postgresql:17.6")
+
+	cases := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"ExtensionImageRepo", ExtensionImageRepo(), "mcr.microsoft.com/documentdb/documentdb"},
+		{"GatewayImageRepo", GatewayImageRepo(), "mcr.microsoft.com/documentdb/gateway"},
+		{"OtelCollectorImage", OtelCollectorImage(), "mcr.microsoft.com/oss/otel/opentelemetry-collector-contrib:0.149.0"},
+		{"PostgresImage", PostgresImage(), "mcr.microsoft.com/oss/cloudnative-pg/postgresql:17.6"},
+	}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("%s = %q, want %q", c.name, c.got, c.want)
+		}
+	}
+}

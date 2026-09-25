@@ -22,10 +22,10 @@ type ProductProfile struct {
 	ExtensionImageRepo string
 	GatewayImageRepo   string
 
-	// DefaultExtensionImage and DefaultGatewayImage are the fully-qualified
-	// images used when neither an explicit image nor a version is supplied.
-	DefaultExtensionImage string
-	DefaultGatewayImage   string
+	// DefaultTag is the image tag used when neither an explicit image nor a
+	// version is supplied. It is composed onto the (possibly overridden)
+	// repository so a registry override flows through to the default image.
+	DefaultTag string
 
 	// DefaultCredentialSecret is the credential secret name used when the custom
 	// resource does not specify one.

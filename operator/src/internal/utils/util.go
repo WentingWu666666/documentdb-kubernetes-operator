@@ -421,27 +421,65 @@ func GenerateConnectionString(documentdb *dbpreview.DocumentDB, serviceIp string
 	return conn + "&replicaSet=rs0"
 }
 
+// envOr returns the value of the environment variable named key, or def when it
+// is unset or empty.
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+// ExtensionImageRepo returns the DocumentDB extension image repository (host+path,
+// no tag), honoring the DOCUMENTDB_EXTENSION_IMAGE_REPO env override and falling
+// back to the compiled-in default.
+func ExtensionImageRepo() string {
+	return envOr(DOCUMENTDB_EXTENSION_IMAGE_REPO_ENV, DOCUMENTDB_EXTENSION_IMAGE_REPO)
+}
+
+// GatewayImageRepo returns the gateway image repository (host+path, no tag),
+// honoring the GATEWAY_IMAGE_REPO env override.
+func GatewayImageRepo() string {
+	return envOr(GATEWAY_IMAGE_REPO_ENV, GATEWAY_IMAGE_REPO)
+}
+
+// OtelCollectorImage returns the fully-qualified OTel collector image injected
+// into the monitoring sidecar, honoring the OTEL_COLLECTOR_IMAGE env override.
+func OtelCollectorImage() string {
+	return envOr(OTEL_COLLECTOR_IMAGE_ENV, DEFAULT_OTEL_COLLECTOR_IMAGE)
+}
+
+// PostgresImage returns the operator-level base PostgreSQL operand image supplied
+// via the POSTGRES_IMAGE env, or empty when unset. An empty result means the
+// operator defers to CloudNativePG's built-in operand default (unless the CR
+// pins spec.image.Postgres).
+func PostgresImage() string {
+	return os.Getenv(POSTGRES_IMAGE_ENV)
+}
+
 // ResolveComponentImage applies the shared image-resolution priority used for
-// both the extension and gateway images: an explicit image wins, then a
-// spec-level version, then an environment-provided version, then the
-// change-stream override, and finally the product default. Every product-varying
-// value (repo, default, env version, change-stream image) is supplied by the
-// caller so this function stays product-neutral and serves any product profile.
-func ResolveComponentImage(repo, defaultImage, explicitImage, specVersion, envVersion, changeStreamImage string, changeStreamEnabled bool) string {
+// both the extension and gateway images: an explicit image wins, then a version
+// (spec-level, else environment-provided) composed onto the repository, then the
+// change-stream override, and finally the repository at the default tag. Every
+// product-varying value (repo, default tag, env version, change-stream image) is
+// supplied by the caller so this function stays product-neutral and serves any
+// product profile.
+func ResolveComponentImage(repo, defaultTag, explicitImage, specVersion, envVersion, changeStreamImage string, changeStreamEnabled bool) string {
 	if explicitImage != "" {
 		return explicitImage
 	}
-	if specVersion != "" {
-		return fmt.Sprintf("%s:%s", repo, specVersion)
+	version := specVersion
+	if version == "" {
+		version = envVersion
 	}
-	if envVersion != "" {
-		return fmt.Sprintf("%s:%s", repo, envVersion)
+	if version != "" {
+		return fmt.Sprintf("%s:%s", repo, version)
 	}
 	// TODO: remove this override once change stream support is included in the official images.
 	if changeStreamEnabled {
 		return changeStreamImage
 	}
-	return defaultImage
+	return fmt.Sprintf("%s:%s", repo, defaultTag)
 }
 
 func GenerateServiceName(source, target, resourceGroup string) string {

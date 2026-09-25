@@ -88,3 +88,52 @@ func TestDocumentDBAdapterImageResolutionEnvVar(t *testing.T) {
 		t.Errorf("GatewayImage() = %q, want %q", got, want)
 	}
 }
+
+// TestDocumentDBAdapterRepoOverrideFlowsToDefault confirms that a repository env
+// override is honored on the default-tag path (no explicit image and no version),
+// so a mirrored registry stays consistent for the default image too.
+func TestDocumentDBAdapterRepoOverrideFlowsToDefault(t *testing.T) {
+	t.Setenv(util.DOCUMENTDB_EXTENSION_IMAGE_REPO_ENV, "mcr.microsoft.com/documentdb/documentdb")
+	t.Setenv(util.GATEWAY_IMAGE_REPO_ENV, "mcr.microsoft.com/documentdb/gateway")
+	a := DocumentDBAdapter{}
+	db := &dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{}}
+
+	if got, want := a.ExtensionImage(db), "mcr.microsoft.com/documentdb/documentdb:"+util.DEFAULT_DOCUMENTDB_TAG; got != want {
+		t.Errorf("ExtensionImage() = %q, want %q", got, want)
+	}
+	if got, want := a.GatewayImage(db), "mcr.microsoft.com/documentdb/gateway:"+util.DEFAULT_DOCUMENTDB_TAG; got != want {
+		t.Errorf("GatewayImage() = %q, want %q", got, want)
+	}
+}
+
+// TestDocumentDBAdapterPostgresImage covers the base PostgreSQL operand image
+// resolution: a CR-pinned image wins, else the operator-level POSTGRES_IMAGE
+// default, else empty (defer to CloudNativePG's built-in operand default).
+func TestDocumentDBAdapterPostgresImage(t *testing.T) {
+	a := DocumentDBAdapter{}
+
+	t.Run("empty when unset defers to CNPG", func(t *testing.T) {
+		got := a.ToClusterIntent(&dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{}}).Images.Postgres
+		if got != "" {
+			t.Errorf("Postgres = %q, want empty", got)
+		}
+	})
+
+	t.Run("operator default from env", func(t *testing.T) {
+		t.Setenv(util.POSTGRES_IMAGE_ENV, "mcr.microsoft.com/oss/cloudnative-pg/postgresql:17.6")
+		got := a.ToClusterIntent(&dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{}}).Images.Postgres
+		if want := "mcr.microsoft.com/oss/cloudnative-pg/postgresql:17.6"; got != want {
+			t.Errorf("Postgres = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("CR pin overrides operator default", func(t *testing.T) {
+		t.Setenv(util.POSTGRES_IMAGE_ENV, "mcr.microsoft.com/oss/cloudnative-pg/postgresql:17.6")
+		db := &dbpreview.DocumentDB{Spec: dbpreview.DocumentDBSpec{
+			Image: &dbpreview.ImageSpec{Postgres: "custom-registry/pg:16"},
+		}}
+		if got, want := a.ToClusterIntent(db).Images.Postgres, "custom-registry/pg:16"; got != want {
+			t.Errorf("Postgres = %q, want %q", got, want)
+		}
+	})
+}

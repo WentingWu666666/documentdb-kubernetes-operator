@@ -16,10 +16,9 @@ import (
 func DocumentDBProfile() ProductProfile {
 	return ProductProfile{
 		Name:                    "DocumentDB",
-		ExtensionImageRepo:      util.DOCUMENTDB_EXTENSION_IMAGE_REPO,
-		GatewayImageRepo:        util.GATEWAY_IMAGE_REPO,
-		DefaultExtensionImage:   util.DEFAULT_DOCUMENTDB_IMAGE,
-		DefaultGatewayImage:     util.DEFAULT_GATEWAY_IMAGE,
+		ExtensionImageRepo:      util.ExtensionImageRepo(),
+		GatewayImageRepo:        util.GatewayImageRepo(),
+		DefaultTag:              util.DEFAULT_DOCUMENTDB_TAG,
 		DefaultCredentialSecret: util.DEFAULT_DOCUMENTDB_CREDENTIALS_SECRET,
 		SidecarInjectorPlugin:   util.DEFAULT_SIDECAR_INJECTOR_PLUGIN,
 		WALReplicaPlugin:        util.DEFAULT_WAL_REPLICA_PLUGIN,
@@ -46,7 +45,7 @@ func (a DocumentDBAdapter) ExtensionImage(db *dbpreview.DocumentDB) string {
 	}
 	return util.ResolveComponentImage(
 		p.ExtensionImageRepo,
-		p.DefaultExtensionImage,
+		p.DefaultTag,
 		explicit,
 		db.Spec.DocumentDBVersion,
 		os.Getenv(util.DOCUMENTDB_VERSION_ENV),
@@ -65,7 +64,7 @@ func (a DocumentDBAdapter) GatewayImage(db *dbpreview.DocumentDB) string {
 	}
 	return util.ResolveComponentImage(
 		p.GatewayImageRepo,
-		p.DefaultGatewayImage,
+		p.DefaultTag,
 		explicit,
 		db.Spec.DocumentDBVersion,
 		os.Getenv(util.DOCUMENTDB_VERSION_ENV),
@@ -91,8 +90,14 @@ func (a DocumentDBAdapter) ToClusterIntent(db *dbpreview.DocumentDB) ClusterInte
 	}
 
 	var postgresImage string
-	if db.Spec.Image != nil {
+	if db.Spec.Image != nil && db.Spec.Image.Postgres != "" {
+		// A CR-pinned operand image wins.
 		postgresImage = db.Spec.Image.Postgres
+	} else {
+		// Otherwise use the operator-level default (POSTGRES_IMAGE env). When that
+		// is empty the field stays empty and CloudNativePG applies its built-in
+		// operand default.
+		postgresImage = util.PostgresImage()
 	}
 
 	var pg Postgres

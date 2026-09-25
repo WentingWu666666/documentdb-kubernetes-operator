@@ -63,6 +63,105 @@ tests:
           value: "IfNotPresent"
 
   # -------------------------------------------------------------------
+  # Registry prefix (single-knob image bundle)
+  # -------------------------------------------------------------------
+  - it: should prefix the operator image with image.registry
+    set:
+      image.registry: mcr.microsoft.com
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "mcr.microsoft.com/documentdb/documentdb-kubernetes-operator/operator:0.3.0"
+
+  - it: should use a per-component full-ref repository verbatim, ignoring image.registry
+    set:
+      image.registry: mcr.microsoft.com
+      image.documentdbk8soperator.repository: myacr.azurecr.io/cp/operator
+      image.documentdbk8soperator.tag: v9
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "myacr.azurecr.io/cp/operator:v9"
+
+  - it: should treat a localhost:port repository as a full ref, ignoring image.registry
+    set:
+      image.registry: mcr.microsoft.com
+      image.documentdbk8soperator.repository: localhost:5000/cp/operator
+      image.documentdbk8soperator.tag: dev
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "localhost:5000/cp/operator:dev"
+
+  - it: should treat a localhost repository as a full ref, ignoring image.registry
+    set:
+      image.registry: mcr.microsoft.com
+      image.documentdbk8soperator.repository: localhost/cp/operator
+      image.documentdbk8soperator.tag: dev
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "localhost/cp/operator:dev"
+
+  # -------------------------------------------------------------------
+  # Data-plane image repository env
+  # -------------------------------------------------------------------
+  - it: should set data-plane repo env using the default registry
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DOCUMENTDB_EXTENSION_IMAGE_REPO
+            value: "ghcr.io/documentdb/documentdb-kubernetes-operator/documentdb"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GATEWAY_IMAGE_REPO
+            value: "ghcr.io/documentdb/documentdb-kubernetes-operator/gateway"
+
+  - it: should re-home data-plane repo env via image.registry
+    set:
+      image.registry: mcr.microsoft.com
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DOCUMENTDB_EXTENSION_IMAGE_REPO
+            value: "mcr.microsoft.com/documentdb/documentdb-kubernetes-operator/documentdb"
+
+  - it: should omit otel/postgres env by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_COLLECTOR_IMAGE
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_IMAGE
+          any: true
+
+  - it: should set otel/postgres env as full mirrored refs when overridden
+    set:
+      image.registry: mcr.microsoft.com
+      image.otelCollector.repository: oss/otel/opentelemetry-collector-contrib
+      image.otelCollector.tag: "0.149.0"
+      image.postgres.repository: oss/cloudnative-pg/postgresql
+      image.postgres.tag: "17.6"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_COLLECTOR_IMAGE
+            value: "mcr.microsoft.com/oss/otel/opentelemetry-collector-contrib:0.149.0"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_IMAGE
+            value: "mcr.microsoft.com/oss/cloudnative-pg/postgresql:17.6"
+
+  # -------------------------------------------------------------------
   # Environment variables
   # -------------------------------------------------------------------
   - it: should set DOCUMENTDB_VERSION env when documentDbVersion is set
@@ -85,7 +184,7 @@ tests:
 
   - it: should set GATEWAY_IMAGE_PULL_POLICY when configured
     set:
-      gatewayImagePullPolicy: "Never"
+      image.gateway.pullPolicy: "Never"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -94,6 +193,8 @@ tests:
             value: "Never"
 
   - it: should omit GATEWAY_IMAGE_PULL_POLICY when empty
+    set:
+      image.gateway.pullPolicy: ""
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].env
@@ -101,9 +202,17 @@ tests:
             name: GATEWAY_IMAGE_PULL_POLICY
           any: true
 
+  - it: should set GATEWAY_IMAGE_PULL_POLICY to IfNotPresent by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GATEWAY_IMAGE_PULL_POLICY
+            value: "IfNotPresent"
+
   - it: should set DOCUMENTDB_IMAGE_PULL_POLICY when configured
     set:
-      documentDbImagePullPolicy: "IfNotPresent"
+      image.documentdb.pullPolicy: "IfNotPresent"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -112,12 +221,22 @@ tests:
             value: "IfNotPresent"
 
   - it: should omit DOCUMENTDB_IMAGE_PULL_POLICY when empty
+    set:
+      image.documentdb.pullPolicy: ""
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: DOCUMENTDB_IMAGE_PULL_POLICY
           any: true
+
+  - it: should set DOCUMENTDB_IMAGE_PULL_POLICY to IfNotPresent by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DOCUMENTDB_IMAGE_PULL_POLICY
+            value: "IfNotPresent"
 
   - it: should always set GATEWAY_PORT
     asserts:

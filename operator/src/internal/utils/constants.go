@@ -17,6 +17,26 @@ const (
 	// DocumentDB extension image pull policy environment variable
 	DOCUMENTDB_IMAGE_PULL_POLICY_ENV = "DOCUMENTDB_IMAGE_PULL_POLICY"
 
+	// --- Configurable image sources (registry-prefix model) ---
+	// These env vars let the Helm chart supply the image repositories/refs at
+	// deploy time so the same operator binary can be repointed at a different
+	// registry (e.g. a public registry upstream, or a private/mirrored registry)
+	// without a code change. Each is optional; when unset the operator falls back
+	// to its compiled-in default below.
+
+	// DOCUMENTDB_EXTENSION_IMAGE_REPO_ENV overrides the extension image repository
+	// (host+path, no tag) used when composing an image from a bare version.
+	DOCUMENTDB_EXTENSION_IMAGE_REPO_ENV = "DOCUMENTDB_EXTENSION_IMAGE_REPO"
+	// GATEWAY_IMAGE_REPO_ENV overrides the gateway image repository (host+path, no tag).
+	GATEWAY_IMAGE_REPO_ENV = "GATEWAY_IMAGE_REPO"
+	// OTEL_COLLECTOR_IMAGE_ENV overrides the fully-qualified OTel collector image
+	// (host+path+tag) injected into the monitoring sidecar.
+	OTEL_COLLECTOR_IMAGE_ENV = "OTEL_COLLECTOR_IMAGE"
+	// POSTGRES_IMAGE_ENV supplies a fully-qualified base PostgreSQL operand image.
+	// When unset (and the CR does not pin spec.image.Postgres) the operator defers
+	// to CloudNativePG's built-in operand default.
+	POSTGRES_IMAGE_ENV = "POSTGRES_IMAGE"
+
 	// IOURING_SECCOMP_PROFILE_ENV overrides the Localhost seccomp profile path
 	// applied to the postgres pods when the IOUring feature gate is enabled. The
 	// path is relative to the node's kubelet seccomp root (/var/lib/kubelet/seccomp).
@@ -32,10 +52,14 @@ const (
 	DOCUMENTDB_EXTENSION_IMAGE_REPO = "ghcr.io/documentdb/documentdb-kubernetes-operator/documentdb"
 	GATEWAY_IMAGE_REPO              = "ghcr.io/documentdb/documentdb-kubernetes-operator/gateway"
 
+	// DEFAULT_DOCUMENTDB_TAG is the default tag for the extension and gateway
+	// images when neither an explicit image nor a version is supplied.
+	DEFAULT_DOCUMENTDB_TAG = "0.117.0"
+
 	// DEFAULT_DOCUMENTDB_IMAGE is the extension image used in ImageVolume mode.
-	DEFAULT_DOCUMENTDB_IMAGE = DOCUMENTDB_EXTENSION_IMAGE_REPO + ":0.117.0"
+	DEFAULT_DOCUMENTDB_IMAGE = DOCUMENTDB_EXTENSION_IMAGE_REPO + ":" + DEFAULT_DOCUMENTDB_TAG
 	// NOTE: Keep in sync with operator/cnpg-plugins/sidecar-injector/internal/config/config.go:applyDefaults()
-	DEFAULT_GATEWAY_IMAGE                 = GATEWAY_IMAGE_REPO + ":0.117.0"
+	DEFAULT_GATEWAY_IMAGE                 = GATEWAY_IMAGE_REPO + ":" + DEFAULT_DOCUMENTDB_TAG
 	DEFAULT_DOCUMENTDB_CREDENTIALS_SECRET = "documentdb-credentials"
 	DEFAULT_OTEL_COLLECTOR_IMAGE          = "otel/opentelemetry-collector-contrib:0.149.0"
 
