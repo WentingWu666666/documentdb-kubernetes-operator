@@ -41,6 +41,9 @@ image:
   # A `repository` that already includes a host (has "." or ":", or is
   # "localhost") is used as-is and ignores this prefix — that's how you point a
   # single image at a different registry.
+  # Every `repository` is a host/path only: put the tag in the component's
+  # `tag` field (or `documentDbVersion` for the data-plane images). A tag or
+  # digest embedded in a `repository` is rejected at render time.
   registry: ghcr.io
 
   # --- Operator (control-plane) images. tag defaults to Chart.AppVersion. ---

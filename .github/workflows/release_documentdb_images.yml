@@ -74,8 +74,8 @@ jobs:
       - name: Detect current default version
         id: current
         run: |
-          # Extract the assigned DEFAULT_DOCUMENTDB_IMAGE value from constants.go.
-          CURRENT=$(sed -nE 's|^[[:space:]]*DEFAULT_DOCUMENTDB_IMAGE[[:space:]]*=.*:([0-9]+\.[0-9]+\.[0-9]+)".*|\1|p' \
+          # Extract the assigned DEFAULT_DOCUMENTDB_TAG value from constants.go.
+          CURRENT=$(sed -nE 's|^[[:space:]]*DEFAULT_DOCUMENTDB_TAG[[:space:]]*=[[:space:]]*"([0-9]+\.[0-9]+\.[0-9]+)".*|\1|p' \
             operator/src/internal/utils/constants.go | head -1)
           if [[ -z "$CURRENT" ]]; then
             echo "Failed to extract current default version from operator/src/internal/utils/constants.go" >&2
@@ -98,8 +98,10 @@ jobs:
 
           echo "Updating default versions: $OLD_VERSION → $NEW_VERSION"
 
-          # 1. Update operator constants.go
-          sed -i "s|:${OLD_VERSION}\"|:${NEW_VERSION}\"|g" \
+          # 1. Update operator constants.go. DEFAULT_DOCUMENTDB_TAG is the single
+          #    version literal; the DEFAULT_DOCUMENTDB_IMAGE/DEFAULT_GATEWAY_IMAGE
+          #    defaults are composed from it, so bumping the tag is sufficient.
+          sed -i "s|DEFAULT_DOCUMENTDB_TAG = \"${OLD_VERSION}\"|DEFAULT_DOCUMENTDB_TAG = \"${NEW_VERSION}\"|" \
             operator/src/internal/utils/constants.go
 
           # 2. Update sidecar plugin config.go

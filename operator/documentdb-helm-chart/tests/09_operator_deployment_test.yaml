@@ -103,6 +103,20 @@ tests:
           path: spec.template.spec.containers[0].image
           value: "localhost/cp/operator:dev"
 
+  - it: should reject a repository that embeds a tag
+    set:
+      image.documentdbk8soperator.repository: myacr.io/cp/operator:custom
+    asserts:
+      - failedTemplate:
+          errorPattern: "must be a host/path without a tag or digest"
+
+  - it: should reject a repository that embeds a digest
+    set:
+      image.documentdb.repository: myacr.io/documentdb@sha256:abc123
+    asserts:
+      - failedTemplate:
+          errorPattern: "must be a host/path without a tag or digest"
+
   # -------------------------------------------------------------------
   # Data-plane image repository env
   # -------------------------------------------------------------------
