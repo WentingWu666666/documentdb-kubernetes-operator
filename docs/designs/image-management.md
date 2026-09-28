@@ -164,10 +164,16 @@ image:
 
 ### Image Tag Resolution in Templates
 
-**Operator-track images** use `Chart.AppVersion`:
+**Operator-track images** are composed by the `documentdb.imageRef` helper, which
+prepends `image.registry` to a relative repository (or uses the repository
+verbatim when it already carries a host, i.e. its first segment contains `.` or
+`:`, or equals `localhost`) and appends the tag, defaulting to `Chart.AppVersion`:
 ```yaml
-image: "{{ .Values.image.documentdbk8soperator.repository }}:{{ .Values.image.documentdbk8soperator.tag | default .Chart.AppVersion }}"
+image: "{{ include "documentdb.imageRef" (dict "name" "image.documentdbk8soperator.repository" "registry" .Values.image.registry "repo" .Values.image.documentdbk8soperator.repository "tag" (.Values.image.documentdbk8soperator.tag | default .Chart.AppVersion)) }}"
 ```
+Repositories are host/path only: an empty registry/repository, or a tag or digest
+embedded in the repository, fails rendering (naming the offending setting) rather
+than producing an invalid reference.
 
 **Database version** is passed as an environment variable:
 ```yaml

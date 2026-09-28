@@ -117,6 +117,44 @@ tests:
       - failedTemplate:
           errorPattern: "must be a host/path without a tag or digest"
 
+  - it: should fail when image.registry is empty for a relative repository
+    set:
+      image.registry: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "image.registry is empty"
+
+  - it: should fail when a component repository is empty, naming the setting
+    set:
+      image.documentdbk8soperator.repository: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "image.documentdbk8soperator.repository is empty"
+
+  - it: should reject an invalid gateway pull policy
+    set:
+      image.gateway.pullPolicy: Sometimes
+    asserts:
+      - failedTemplate:
+          errorPattern: "image.gateway.pullPolicy must be one of Always, IfNotPresent, Never"
+
+  - it: should reject an invalid documentdb pull policy
+    set:
+      image.documentdb.pullPolicy: Sometimes
+    asserts:
+      - failedTemplate:
+          errorPattern: "image.documentdb.pullPolicy must be one of Always, IfNotPresent, Never"
+
+  - it: should accept a valid non-default gateway pull policy
+    set:
+      image.gateway.pullPolicy: Always
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GATEWAY_IMAGE_PULL_POLICY
+            value: "Always"
+
   # -------------------------------------------------------------------
   # Data-plane image repository env
   # -------------------------------------------------------------------
