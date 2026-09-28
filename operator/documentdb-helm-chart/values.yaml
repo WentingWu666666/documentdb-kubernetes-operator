@@ -49,12 +49,17 @@ image:
   # --- Operator (control-plane) images. tag defaults to Chart.AppVersion. ---
   documentdbk8soperator:
     repository: documentdb/documentdb-kubernetes-operator/operator
+    # Empty = Chart.AppVersion. The release/test chart-build pins this per
+    # platform; keep the key present so that rewrite targets this block.
+    tag: ""
     pullPolicy: IfNotPresent
   sidecarinjector:
     repository: documentdb/documentdb-kubernetes-operator/sidecar
+    tag: ""
     pullPolicy: IfNotPresent
   walreplica:
     repository: documentdb/documentdb-kubernetes-operator/wal-replica
+    tag: ""
     pullPolicy: IfNotPresent
 
   # --- Data-plane images. tag defaults to documentDbVersion (above). ---
