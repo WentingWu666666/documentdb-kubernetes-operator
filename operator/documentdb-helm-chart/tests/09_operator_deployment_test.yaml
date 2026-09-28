@@ -213,6 +213,38 @@ tests:
             name: POSTGRES_IMAGE
             value: "mcr.microsoft.com/oss/cloudnative-pg/postgresql:17.6"
 
+  - it: should fail when otelCollector.repository is set without a tag
+    set:
+      image.otelCollector.repository: oss/otel/opentelemetry-collector-contrib
+      image.otelCollector.tag: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "image.otelCollector.repository is set but image.otelCollector.tag is empty; pin a tag (image.otelCollector.repository and image.otelCollector.tag must be set together)"
+
+  - it: should fail when otelCollector.tag is set without a repository
+    set:
+      image.otelCollector.repository: ""
+      image.otelCollector.tag: "0.149.0"
+    asserts:
+      - failedTemplate:
+          errorMessage: "image.otelCollector.tag is set but image.otelCollector.repository is empty; set the repository (image.otelCollector.repository and image.otelCollector.tag must be set together)"
+
+  - it: should fail when postgres.repository is set without a tag
+    set:
+      image.postgres.repository: oss/cloudnative-pg/postgresql
+      image.postgres.tag: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "image.postgres.repository is set but image.postgres.tag is empty; pin a tag (image.postgres.repository and image.postgres.tag must be set together)"
+
+  - it: should fail when postgres.tag is set without a repository
+    set:
+      image.postgres.repository: ""
+      image.postgres.tag: "17.6"
+    asserts:
+      - failedTemplate:
+          errorMessage: "image.postgres.tag is set but image.postgres.repository is empty; set the repository (image.postgres.repository and image.postgres.tag must be set together)"
+
   # -------------------------------------------------------------------
   # Environment variables
   # -------------------------------------------------------------------

@@ -125,16 +125,19 @@ spec:
         - name: GATEWAY_IMAGE_REPO
           value: "{{ include "documentdb.imageRef" (dict "name" "image.gateway.repository" "registry" .Values.image.registry "repo" .Values.image.gateway.repository "tag" "") }}"
         {{- end }}
-        # Extra images: composed via the same registry-prefix rule. Only set when
-        # a repository is given; otherwise the operator uses its compiled-in
-        # default (otel) or defers to CNPG (postgres).
-        {{- if .Values.image.otelCollector.repository }}
+        # Extra images: composed via the same registry-prefix rule. The
+        # repository and tag must be set together (both or neither); otherwise
+        # the operator uses its compiled-in default (otel) or defers to CNPG
+        # (postgres).
+        {{- $otelImage := include "documentdb.extraImageRef" (dict "registry" .Values.image.registry "repo" .Values.image.otelCollector.repository "tag" .Values.image.otelCollector.tag "repoName" "image.otelCollector.repository" "tagName" "image.otelCollector.tag") }}
+        {{- if $otelImage }}
         - name: OTEL_COLLECTOR_IMAGE
-          value: "{{ include "documentdb.imageRef" (dict "name" "image.otelCollector.repository" "registry" .Values.image.registry "repo" .Values.image.otelCollector.repository "tag" .Values.image.otelCollector.tag) }}"
+          value: "{{ $otelImage }}"
         {{- end }}
-        {{- if .Values.image.postgres.repository }}
+        {{- $postgresImage := include "documentdb.extraImageRef" (dict "registry" .Values.image.registry "repo" .Values.image.postgres.repository "tag" .Values.image.postgres.tag "repoName" "image.postgres.repository" "tagName" "image.postgres.tag") }}
+        {{- if $postgresImage }}
         - name: POSTGRES_IMAGE
-          value: "{{ include "documentdb.imageRef" (dict "name" "image.postgres.repository" "registry" .Values.image.registry "repo" .Values.image.postgres.repository "tag" .Values.image.postgres.tag) }}"
+          value: "{{ $postgresImage }}"
         {{- end }}
         {{- $gwPolicy := include "documentdb.pullPolicy" (dict "name" "image.gateway.pullPolicy" "policy" .Values.image.gateway.pullPolicy) }}
         {{- if $gwPolicy }}
