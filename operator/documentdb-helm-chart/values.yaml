@@ -13,7 +13,7 @@ documentDbVersion: "1.0-RC2"
 # ---------------------------------------------------------------------------
 # When isProxyEnabled is true, the chart hydrates a proxy Secret in the operator
 # namespace and wires HTTP_PROXY / HTTPS_PROXY / NO_PROXY into the operator and
-# (via plugin parameters) the per-cluster OTel Collector sidecar. The collector's
+# (via plugin parameters) the OTel Collector sidecar injected into each DocumentDB pod. The collector's
 # Go runtime honors these variables natively (http.ProxyFromEnvironment), so the
 # OTLP exporter's egress is routed through the proxy with no image change.
 # Works with standard forward proxies and CONNECT-tunneling gateways such as

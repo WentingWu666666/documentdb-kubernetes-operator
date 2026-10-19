@@ -117,8 +117,9 @@ const (
 
 	// --- Outbound proxy support ---
 	// The operator reads these standard proxy environment variables (set by the
-	// Helm chart from Azure.proxySettings) and forwards them to the per-cluster
-	// OTel Collector sidecar via the plugin parameters below. The collector's Go
+	// Helm chart from the proxy values) and forwards them, via the per-cluster
+	// plugin parameters below, to the OTel Collector sidecar injected into each
+	// DocumentDB pod. The collector's Go
 	// runtime honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY natively.
 	HTTP_PROXY_ENV  = "HTTP_PROXY"
 	HTTPS_PROXY_ENV = "HTTPS_PROXY"
