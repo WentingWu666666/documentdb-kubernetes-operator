@@ -8,39 +8,6 @@ replicaCount: 1
 # When empty, the operator falls back to its compiled-in defaults (see constants.go).
 documentDbVersion: "1.0-RC2"
 
-# ---------------------------------------------------------------------------
-# Outbound proxy support
-# ---------------------------------------------------------------------------
-# When isProxyEnabled is true, the chart hydrates a proxy Secret in the operator
-# namespace and wires HTTP_PROXY / HTTPS_PROXY / NO_PROXY into the operator and
-# (via plugin parameters) the OTel Collector sidecar injected into each DocumentDB pod. The collector's
-# Go runtime honors these variables natively (http.ProxyFromEnvironment), so the
-# OTLP exporter's egress is routed through the proxy with no image change.
-# Works with standard forward proxies and CONNECT-tunneling gateways such as
-# Azure Arc Gateway.
-#
-# NO_PROXY: the chart ALWAYS appends a standard in-cluster bypass list
-# (localhost, .svc, .svc.cluster.local and RFC1918 ranges) to whatever you set
-# here, so in-cluster traffic (kube-apiserver, localhost Postgres scrapes, the
-# in-pod OTLP receiver) never routes through the proxy.
-#
-# SECURITY: proxy URLs are copied into the Secret, the operator env, the CNPG
-# Cluster plugin parameters and the collector container env. Do NOT embed
-# credentials (http://user:pass@host) in these URLs; they would be readable by
-# anyone who can read those resources. Credentialed proxies are not supported yet.
-#
-# Use either `proxy` or the Azure Arc `Azure.proxySettings` key, not both; the
-# chart fails if both are enabled.
-#
-# proxyCert is reserved for a future phase (TLS-intercepting proxies) and is
-# currently ignored.
-proxy:
-  isProxyEnabled: false
-  httpProxy: ""
-  httpsProxy: ""
-  noProxy: ""
-  proxyCert: ""
-
 serviceAccount:
   create: true
   automount: true
@@ -246,3 +213,36 @@ cloudnative-pg:
   additionalEnv:
     - name: ENABLE_INSTANCE_MANAGER_INPLACE_UPDATES
       value: "true"
+
+# ---------------------------------------------------------------------------
+# Outbound proxy support
+# ---------------------------------------------------------------------------
+# When isProxyEnabled is true, the chart hydrates a proxy Secret in the operator
+# namespace and wires HTTP_PROXY / HTTPS_PROXY / NO_PROXY into the operator and
+# (via plugin parameters) the OTel Collector sidecar injected into each DocumentDB pod. The collector's
+# Go runtime honors these variables natively (http.ProxyFromEnvironment), so the
+# OTLP exporter's egress is routed through the proxy with no image change.
+# Works with standard forward proxies and CONNECT-tunneling gateways such as
+# Azure Arc Gateway.
+#
+# NO_PROXY: the chart ALWAYS appends a standard in-cluster bypass list
+# (localhost, .svc, .svc.cluster.local and RFC1918 ranges) to whatever you set
+# here, so in-cluster traffic (kube-apiserver, localhost Postgres scrapes, the
+# in-pod OTLP receiver) never routes through the proxy.
+#
+# SECURITY: proxy URLs are copied into the Secret, the operator env, the CNPG
+# Cluster plugin parameters and the collector container env. Do NOT embed
+# credentials (http://user:pass@host) in these URLs; they would be readable by
+# anyone who can read those resources. Credentialed proxies are not supported yet.
+#
+# Use either `proxy` or the Azure Arc `Azure.proxySettings` key, not both; the
+# chart fails if both are enabled.
+#
+# proxyCert is reserved for a future phase (TLS-intercepting proxies) and is
+# currently ignored.
+proxy:
+  isProxyEnabled: false
+  httpProxy: ""
+  httpsProxy: ""
+  noProxy: ""
+  proxyCert: ""
