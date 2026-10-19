@@ -491,8 +491,8 @@ tests:
 
   - it: should wire proxy envFrom and checksum annotation when proxy is enabled
     set:
-      Azure.proxySettings.isProxyEnabled: true
-      Azure.proxySettings.httpsProxy: "http://proxy.example.com:3128"
+      proxy.isProxyEnabled: true
+      proxy.httpsProxy: "http://proxy.example.com:3128"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].envFrom

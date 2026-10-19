@@ -93,9 +93,28 @@ Usage:
 {{- end -}}
 {{- end -}}
 {{/*
+documentdb.proxy returns the effective outbound proxy settings as JSON (decode
+with fromJson). The documented OSS key is `proxy`. `Azure.proxySettings` is
+honored as a fallback purely for Azure Arc extension compatibility (the Arc
+platform injects that key); the `proxy` value wins when both are set, and
+isProxyEnabled is true if either enables it.
+*/}}
+{{- define "documentdb.proxy" -}}
+{{- $p := .Values.proxy | default dict -}}
+{{- $a := dig "proxySettings" dict (.Values.Azure | default dict) -}}
+{{- dict
+    "isProxyEnabled" (or $p.isProxyEnabled $a.isProxyEnabled | default false)
+    "httpProxy" (coalesce $p.httpProxy $a.httpProxy "")
+    "httpsProxy" (coalesce $p.httpsProxy $a.httpsProxy "")
+    "noProxy" (coalesce $p.noProxy $a.noProxy "")
+    "proxyCert" (coalesce $p.proxyCert $a.proxyCert "")
+  | toJson -}}
+{{- end -}}
+
+{{/*
 documentdb.proxySecretName is the name of the Secret that holds the outbound
 proxy routing configuration (HTTP_PROXY / HTTPS_PROXY / NO_PROXY). It is created
-in the operator namespace when Azure.proxySettings.isProxyEnabled is true.
+in the operator namespace when the proxy is enabled.
 */}}
 {{- define "documentdb.proxySecretName" -}}
 documentdb-proxy-config
@@ -103,15 +122,16 @@ documentdb-proxy-config
 
 {{/*
 documentdb.noProxy composes the effective NO_PROXY value: the user-supplied
-Azure.proxySettings.noProxy (optional) followed by a standard in-cluster bypass
-list so that kube-apiserver, localhost Postgres scrapes and the in-pod OTLP
-receiver never route through the proxy. Duplicate/empty entries are dropped and
-the result is comma-joined.
+noProxy (optional) followed by a standard in-cluster bypass list so that
+kube-apiserver, localhost Postgres scrapes and the in-pod OTLP receiver never
+route through the proxy. Duplicate/empty entries are dropped and the result is
+comma-joined.
 */}}
 {{- define "documentdb.noProxy" -}}
+{{- $proxy := include "documentdb.proxy" . | fromJson -}}
 {{- $defaults := list "localhost" "127.0.0.1" "::1" ".svc" ".svc.cluster.local" "kubernetes.default.svc" "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" -}}
 {{- $user := list -}}
-{{- with .Values.Azure.proxySettings.noProxy -}}
+{{- with $proxy.noProxy -}}
 {{- $user = regexSplit "\\s*,\\s*" (trim .) -1 -}}
 {{- end -}}
 {{- $seen := dict -}}
