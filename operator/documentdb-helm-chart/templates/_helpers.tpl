@@ -95,19 +95,22 @@ Usage:
 {{/*
 documentdb.proxy returns the effective outbound proxy settings as JSON (decode
 with fromJson). The documented OSS key is `proxy`. `Azure.proxySettings` is
-honored as a fallback purely for Azure Arc extension compatibility (the Arc
-platform injects that key); the `proxy` value wins when both are set, and
-isProxyEnabled is true if either enables it.
+accepted purely for Azure Arc extension compatibility (the Arc platform
+injects that key). Only one of the two may be enabled; enabling both fails.
 */}}
 {{- define "documentdb.proxy" -}}
 {{- $p := .Values.proxy | default dict -}}
 {{- $a := dig "proxySettings" dict (.Values.Azure | default dict) -}}
+{{- if and $p.isProxyEnabled $a.isProxyEnabled -}}
+{{- fail "Set either proxy or Azure.proxySettings, not both" -}}
+{{- end -}}
+{{- $src := ternary $a $p (default false $a.isProxyEnabled) -}}
 {{- dict
-    "isProxyEnabled" (or $p.isProxyEnabled $a.isProxyEnabled | default false)
-    "httpProxy" (coalesce $p.httpProxy $a.httpProxy "")
-    "httpsProxy" (coalesce $p.httpsProxy $a.httpsProxy "")
-    "noProxy" (coalesce $p.noProxy $a.noProxy "")
-    "proxyCert" (coalesce $p.proxyCert $a.proxyCert "")
+    "isProxyEnabled" (default false $src.isProxyEnabled)
+    "httpProxy" (default "" $src.httpProxy)
+    "httpsProxy" (default "" $src.httpsProxy)
+    "noProxy" (default "" $src.noProxy)
+    "proxyCert" (default "" $src.proxyCert)
   | toJson -}}
 {{- end -}}
 
