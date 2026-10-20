@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strconv"
 
 	"github.com/cloudnative-pg/cnpg-i-machinery/pkg/pluginhelper/common"
@@ -402,6 +403,15 @@ func proxyEnvVars(cfg *config.Configuration) []corev1.EnvVar {
 	add("HTTP_PROXY", "http_proxy", cfg.HTTPProxy)
 	add("HTTPS_PROXY", "https_proxy", cfg.HTTPSProxy)
 	add("NO_PROXY", "no_proxy", cfg.NoProxy)
+	// SSL_CERT_FILE replaces the collector's trust store, so it must point at
+	// the operator-built bundle that already includes the system roots.
+	// filepath.Base keeps the path inside the mounted ConfigMap.
+	if cfg.ProxyCABundle != "" {
+		env = append(env, corev1.EnvVar{
+			Name:  "SSL_CERT_FILE",
+			Value: "/config/" + filepath.Base(cfg.ProxyCABundle),
+		})
+	}
 	return env
 }
 

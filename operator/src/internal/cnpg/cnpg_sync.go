@@ -123,6 +123,7 @@ func SyncCnpgCluster(
 				util.PLUGIN_PARAM_HTTP_PROXY,
 				util.PLUGIN_PARAM_HTTPS_PROXY,
 				util.PLUGIN_PARAM_NO_PROXY,
+				util.PLUGIN_PARAM_PROXY_CA_BUNDLE,
 			}
 			for _, key := range sidecarParamKeys {
 				desiredVal := getParam(desiredPlugin.Parameters, key)

@@ -232,6 +232,7 @@ func TestToParametersRoundTrip(t *testing.T) {
 		HTTPProxy:              "http://proxy.example.com:3128",
 		HTTPSProxy:             "http://proxy.example.com:3128",
 		NoProxy:                "localhost,.svc.cluster.local",
+		ProxyCABundle:          "ca-bundle.crt",
 	}
 	original.applyDefaults()
 
@@ -286,6 +287,9 @@ func TestToParametersRoundTrip(t *testing.T) {
 	}
 	if restored.HTTPSProxy != original.HTTPSProxy {
 		t.Errorf("round-trip HTTPS proxy = %q, want %q", restored.HTTPSProxy, original.HTTPSProxy)
+	}
+	if restored.ProxyCABundle != original.ProxyCABundle {
+		t.Errorf("round-trip proxy CA bundle = %q, want %q", restored.ProxyCABundle, original.ProxyCABundle)
 	}
 	if restored.NoProxy != original.NoProxy {
 		t.Errorf("round-trip no proxy = %q, want %q", restored.NoProxy, original.NoProxy)
