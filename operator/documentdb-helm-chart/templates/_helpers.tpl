@@ -110,7 +110,6 @@ injects that key). Only one of the two may be enabled; enabling both fails.
     "httpProxy" (default "" $src.httpProxy)
     "httpsProxy" (default "" $src.httpsProxy)
     "noProxy" (default "" $src.noProxy)
-    "proxyCert" (default "" $src.proxyCert)
   | toJson -}}
 {{- end -}}
 
