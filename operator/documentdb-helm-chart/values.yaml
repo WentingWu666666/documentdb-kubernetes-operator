@@ -238,11 +238,8 @@ cloudnative-pg:
 # Use either `proxy` or the Azure Arc `Azure.proxySettings` key, not both; the
 # chart fails if both are enabled.
 #
-# proxyCert (optional): PEM CA certificate(s) for a proxy that re-signs TLS
-# (SSL-bump) or is an HTTPS proxy with a private CA. The operator merges it with
-# its own system CA roots into the per-cluster OTel ConfigMap and points the
-# collector's SSL_CERT_FILE at the merged bundle. Not needed for tunneling
-# proxies such as Azure Arc Gateway. Changing it restarts DocumentDB pods.
+# proxyCert is reserved for a future phase (TLS-intercepting proxies) and is
+# currently ignored.
 proxy:
   isProxyEnabled: false
   httpProxy: ""

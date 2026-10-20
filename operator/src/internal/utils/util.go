@@ -458,10 +458,6 @@ func HTTPSProxy() string { return os.Getenv(HTTPS_PROXY_ENV) }
 // NoProxy returns the operator's NO_PROXY value (empty when unset).
 func NoProxy() string { return os.Getenv(NO_PROXY_ENV) }
 
-// ProxyCert returns the PEM CA certificate(s) of a TLS-intercepting proxy
-// (empty when unset).
-func ProxyCert() string { return os.Getenv(PROXY_CERT_ENV) }
-
 // PostgresImage returns the operator-level base PostgreSQL operand image supplied
 // via the POSTGRES_IMAGE env, or empty when unset. An empty result means the
 // operator defers to CloudNativePG's built-in operand default (unless the CR

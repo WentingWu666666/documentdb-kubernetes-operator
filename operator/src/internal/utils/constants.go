@@ -124,17 +124,12 @@ const (
 	HTTP_PROXY_ENV  = "HTTP_PROXY"
 	HTTPS_PROXY_ENV = "HTTPS_PROXY"
 	NO_PROXY_ENV    = "NO_PROXY"
-	// PROXY_CERT_ENV holds the PEM CA certificate(s) of a TLS-intercepting proxy.
-	PROXY_CERT_ENV = "PROXY_CERT"
 
 	// Sidecar-injector plugin parameter names carrying the proxy configuration
 	// to the OTel Collector sidecar.
 	PLUGIN_PARAM_HTTP_PROXY  = "httpProxy"
 	PLUGIN_PARAM_HTTPS_PROXY = "httpsProxy"
 	PLUGIN_PARAM_NO_PROXY    = "noProxy"
-	// PLUGIN_PARAM_PROXY_CA_BUNDLE names the key in the OTel ConfigMap that
-	// holds the merged CA bundle; the sidecar points SSL_CERT_FILE at it.
-	PLUGIN_PARAM_PROXY_CA_BUNDLE = "proxyCaBundle"
 
 	// TODO: remove these constants once change stream support is included in the official images.
 	CHANGESTREAM_DOCUMENTDB_IMAGE_REPOSITORY = "ghcr.io/wentingwu666666/documentdb-kubernetes-operator"

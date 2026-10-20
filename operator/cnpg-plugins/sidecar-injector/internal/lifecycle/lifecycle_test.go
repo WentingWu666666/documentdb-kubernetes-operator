@@ -478,24 +478,3 @@ func TestProxyEnvVars(t *testing.T) {
 		t.Fatalf("expected 2 env vars for HTTPS-only, got %d (%v)", len(partial), partial)
 	}
 }
-
-func TestProxyEnvVarsCABundle(t *testing.T) {
-	got := map[string]string{}
-	for _, e := range proxyEnvVars(&config.Configuration{ProxyCABundle: "ca-bundle.crt"}) {
-		got[e.Name] = e.Value
-	}
-	if got["SSL_CERT_FILE"] != "/config/ca-bundle.crt" {
-		t.Errorf("SSL_CERT_FILE = %q, want /config/ca-bundle.crt", got["SSL_CERT_FILE"])
-	}
-
-	// A path-like value must not escape the mounted ConfigMap directory.
-	for _, e := range proxyEnvVars(&config.Configuration{ProxyCABundle: "../../etc/passwd"}) {
-		if e.Name == "SSL_CERT_FILE" && e.Value != "/config/passwd" {
-			t.Errorf("SSL_CERT_FILE = %q, want /config/passwd", e.Value)
-		}
-	}
-
-	if len(proxyEnvVars(&config.Configuration{})) != 0 {
-		t.Error("expected no env vars without proxy settings")
-	}
-}

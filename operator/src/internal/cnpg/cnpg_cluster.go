@@ -132,9 +132,6 @@ func GetCnpgClusterSpecFromIntent(req ctrl.Request, documentdb *dbpreview.Docume
 						addPluginParamIfSet(params, util.PLUGIN_PARAM_HTTP_PROXY, util.HTTPProxy())
 						addPluginParamIfSet(params, util.PLUGIN_PARAM_HTTPS_PROXY, util.HTTPSProxy())
 						addPluginParamIfSet(params, util.PLUGIN_PARAM_NO_PROXY, util.NoProxy())
-						if util.ProxyCert() != "" {
-							params[util.PLUGIN_PARAM_PROXY_CA_BUNDLE] = otelcfg.ProxyCABundleKey
-						}
 					}
 					return []cnpgv1.PluginConfiguration{{
 						Name:       sidecarPluginName,

@@ -36,7 +36,6 @@ const (
 	httpProxyParameter                  = "httpProxy"
 	httpsProxyParameter                 = "httpsProxy"
 	noProxyParameter                    = "noProxy"
-	proxyCaBundleParameter              = "proxyCaBundle"
 )
 
 // Configuration represents the plugin configuration parameters
@@ -64,10 +63,6 @@ type Configuration struct {
 	HTTPProxy  string
 	HTTPSProxy string
 	NoProxy    string
-	// ProxyCABundle is the key, inside the mounted OTel ConfigMap, of the merged
-	// CA bundle (system roots + proxy CA). Empty when the proxy does not
-	// intercept TLS.
-	ProxyCABundle string
 }
 
 // FromParameters builds a plugin configuration from the configuration parameters
@@ -178,7 +173,6 @@ func FromParameters(
 		HTTPProxy:                  helper.Parameters[httpProxyParameter],
 		HTTPSProxy:                 helper.Parameters[httpsProxyParameter],
 		NoProxy:                    helper.Parameters[noProxyParameter],
-		ProxyCABundle:              helper.Parameters[proxyCaBundleParameter],
 	}
 
 	configuration.applyDefaults()
@@ -298,7 +292,6 @@ func (config *Configuration) ToParameters() (map[string]string, error) {
 	setIfNotEmpty(httpProxyParameter, config.HTTPProxy)
 	setIfNotEmpty(httpsProxyParameter, config.HTTPSProxy)
 	setIfNotEmpty(noProxyParameter, config.NoProxy)
-	setIfNotEmpty(proxyCaBundleParameter, config.ProxyCABundle)
 
 	return result, nil
 }
