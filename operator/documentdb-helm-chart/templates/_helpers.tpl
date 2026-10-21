@@ -110,6 +110,7 @@ injects that key). Only one of the two may be enabled; enabling both fails.
     "httpProxy" (default "" $src.httpProxy)
     "httpsProxy" (default "" $src.httpsProxy)
     "noProxy" (default "" $src.noProxy)
+    "bypassPrivateRanges" (ternary true (dig "bypassPrivateRanges" true $p) (default false $a.isProxyEnabled))
   | toJson -}}
 {{- end -}}
 
@@ -125,14 +126,18 @@ documentdb-proxy-config
 
 {{/*
 documentdb.noProxy composes the effective NO_PROXY value: the user-supplied
-noProxy (optional) followed by a standard in-cluster bypass list so that
-kube-apiserver, localhost Postgres scrapes and the in-pod OTLP receiver never
-route through the proxy. Duplicate/empty entries are dropped and the result is
-comma-joined.
+noProxy (optional) followed by a standard bypass list. The loopback and
+cluster-local entries are always included. The RFC1918 private ranges are
+included unless proxy.bypassPrivateRanges is false; Azure.proxySettings has no
+such option and always keeps them. Duplicate/empty entries are dropped and the
+result is comma-joined.
 */}}
 {{- define "documentdb.noProxy" -}}
 {{- $proxy := include "documentdb.proxy" . | fromJson -}}
-{{- $defaults := list "localhost" "127.0.0.1" "::1" ".svc" ".svc.cluster.local" "kubernetes.default.svc" "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" -}}
+{{- $defaults := list "localhost" "127.0.0.1" "::1" ".svc" ".svc.cluster.local" "kubernetes.default.svc" -}}
+{{- if $proxy.bypassPrivateRanges -}}
+{{- $defaults = concat $defaults (list "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16") -}}
+{{- end -}}
 {{- $user := list -}}
 {{- with $proxy.noProxy -}}
 {{- $user = regexSplit "\\s*,\\s*" (trim .) -1 -}}

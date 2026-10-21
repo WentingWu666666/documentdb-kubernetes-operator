@@ -227,8 +227,9 @@ cloudnative-pg:
 # Works with standard forward proxies and CONNECT-tunneling gateways such as
 # Azure Arc Gateway.
 #
-# NO_PROXY: the chart ALWAYS appends a standard bypass list (localhost, .svc,
-# .svc.cluster.local and RFC1918 ranges) to whatever you set here. Proxy
+# NO_PROXY: the chart appends a standard bypass list (localhost, .svc,
+# .svc.cluster.local and, unless bypassPrivateRanges is false, the RFC1918
+# ranges) to whatever you set here. Proxy
 # matching uses the requested HOSTNAME, not the IP it resolves to, so this list
 # does not cover every in-cluster destination. Short Service names such as
 # `otel-collector.monitoring` (no .svc suffix) and custom hostnames are sent to
@@ -251,3 +252,8 @@ proxy:
   httpProxy: ""
   httpsProxy: ""
   noProxy: ""
+  # Set to false to send private-network destinations (10.0.0.0/8, 172.16.0.0/12,
+  # 192.168.0.0/16) through the proxy, e.g. an OTLP endpoint reachable only via
+  # the proxy. Only applies to `proxy`, not Azure.proxySettings. Cluster-local
+  # destinations (.svc, localhost) always bypass the proxy.
+  bypassPrivateRanges: true
