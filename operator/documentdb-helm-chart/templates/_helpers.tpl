@@ -115,7 +115,8 @@ injects that key). Only one of the two may be enabled; enabling both fails.
 
 {{/*
 documentdb.proxySecretName is the name of the Secret that holds the outbound
-proxy routing configuration (HTTP_PROXY / HTTPS_PROXY / NO_PROXY). It is created
+proxy routing configuration for the OTel Collector sidecar (DOCUMENTDB_OTEL_HTTP_PROXY /
+DOCUMENTDB_OTEL_HTTPS_PROXY / DOCUMENTDB_OTEL_NO_PROXY). It is created
 in the operator namespace when the proxy is enabled.
 */}}
 {{- define "documentdb.proxySecretName" -}}

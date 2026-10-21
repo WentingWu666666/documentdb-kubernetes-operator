@@ -116,14 +116,19 @@ const (
 	PLUGIN_PARAM_OTEL_CPU_LIMIT         = "otelCpuLimit"
 
 	// --- Outbound proxy support ---
-	// The operator reads these standard proxy environment variables (set by the
-	// Helm chart from the proxy values) and forwards them, via the per-cluster
-	// plugin parameters below, to the OTel Collector sidecar injected into each
-	// DocumentDB pod. The collector's Go
-	// runtime honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY natively.
-	HTTP_PROXY_ENV  = "HTTP_PROXY"
-	HTTPS_PROXY_ENV = "HTTPS_PROXY"
-	NO_PROXY_ENV    = "NO_PROXY"
+	// The operator reads these environment variables (set by the Helm chart from
+	// the proxy values) and forwards them, via the per-cluster plugin parameters
+	// below, to the OTel Collector sidecar injected into each DocumentDB pod. The
+	// sidecar exposes them as the standard HTTP_PROXY / HTTPS_PROXY / NO_PROXY,
+	// which the collector's Go runtime honors natively.
+	//
+	// These deliberately do NOT use the standard names: the operator process
+	// itself must never be proxied, because its Kubernetes API requests would
+	// otherwise route through the proxy on clusters whose API server IP is not
+	// covered by NO_PROXY.
+	HTTP_PROXY_ENV  = "DOCUMENTDB_OTEL_HTTP_PROXY"
+	HTTPS_PROXY_ENV = "DOCUMENTDB_OTEL_HTTPS_PROXY"
+	NO_PROXY_ENV    = "DOCUMENTDB_OTEL_NO_PROXY"
 
 	// Sidecar-injector plugin parameter names carrying the proxy configuration
 	// to the OTel Collector sidecar.

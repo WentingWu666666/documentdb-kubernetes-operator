@@ -19,7 +19,7 @@ spec:
       {{- if (include "documentdb.proxy" . | fromJson).isProxyEnabled }}
       annotations:
         # Roll the operator when the proxy configuration changes so the new
-        # HTTP_PROXY / HTTPS_PROXY / NO_PROXY values take effect.
+        # DOCUMENTDB_OTEL_* proxy values take effect.
         checksum/proxy-config: {{ printf "%s|%s|%s" ((include "documentdb.proxy" . | fromJson).httpProxy) ((include "documentdb.proxy" . | fromJson).httpsProxy) (include "documentdb.noProxy" .) | sha256sum }}
       {{- end }}
     spec:
@@ -97,10 +97,9 @@ spec:
           name: webhook-cert
           readOnly: true
         {{- if (include "documentdb.proxy" . | fromJson).isProxyEnabled }}
-        # Make the operator itself proxy-aware and provide the single source of
-        # truth for the proxy values it forwards to the OTel Collector sidecar.
-        # The Secret keys are the exact env var names (HTTP_PROXY, HTTPS_PROXY,
-        # NO_PROXY).
+        # Provide the proxy values the operator forwards to the OTel Collector
+        # sidecar. The keys are DOCUMENTDB_OTEL_* (not the standard HTTP_PROXY
+        # names) so the operator's own Kubernetes API client is never proxied.
         envFrom:
         - secretRef:
             name: {{ include "documentdb.proxySecretName" . }}
