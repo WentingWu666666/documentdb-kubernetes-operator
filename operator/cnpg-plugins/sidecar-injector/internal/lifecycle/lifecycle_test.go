@@ -477,4 +477,25 @@ func TestProxyEnvVars(t *testing.T) {
 	if len(partial) != 2 {
 		t.Fatalf("expected 2 env vars for HTTPS-only, got %d (%v)", len(partial), partial)
 	}
+
+	// HTTP only → HTTPS_PROXY falls back to it, because the gRPC exporter
+	// consults only HTTPS_PROXY.
+	httpOnly := map[string]string{}
+	for _, e := range proxyEnvVars(&config.Configuration{HTTPProxy: "http://p:3128"}) {
+		httpOnly[e.Name] = e.Value
+	}
+	for _, name := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
+		if httpOnly[name] != "http://p:3128" {
+			t.Errorf("HTTP-only: %s = %q, want the HTTP proxy", name, httpOnly[name])
+		}
+	}
+
+	// An explicit HTTPS proxy is never overridden by the HTTP fallback.
+	both := map[string]string{}
+	for _, e := range proxyEnvVars(&config.Configuration{HTTPProxy: "http://h:1", HTTPSProxy: "http://s:2"}) {
+		both[e.Name] = e.Value
+	}
+	if both["HTTPS_PROXY"] != "http://s:2" || both["HTTP_PROXY"] != "http://h:1" {
+		t.Errorf("explicit values changed: %v", both)
+	}
 }

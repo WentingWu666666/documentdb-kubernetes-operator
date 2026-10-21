@@ -388,7 +388,16 @@ func hasResourceRequirements(resources corev1.ResourceRequirements) bool {
 // Go's http.ProxyFromEnvironment reads both and some libraries only check the
 // lowercase form. Only non-empty values are included, so a pod gets no proxy
 // env when the operator is not proxy-configured.
+//
+// The collector's OTLP exporter uses gRPC, which looks up the proxy with an
+// https-scheme request and therefore reads only HTTPS_PROXY, even for plaintext
+// connections. When only an HTTP proxy is configured, it is also used as the
+// HTTPS proxy so the exporter does not silently bypass it.
 func proxyEnvVars(cfg *config.Configuration) []corev1.EnvVar {
+	httpsProxy := cfg.HTTPSProxy
+	if httpsProxy == "" {
+		httpsProxy = cfg.HTTPProxy
+	}
 	env := []corev1.EnvVar{}
 	add := func(upper, lower, value string) {
 		if value == "" {
@@ -400,7 +409,7 @@ func proxyEnvVars(cfg *config.Configuration) []corev1.EnvVar {
 		)
 	}
 	add("HTTP_PROXY", "http_proxy", cfg.HTTPProxy)
-	add("HTTPS_PROXY", "https_proxy", cfg.HTTPSProxy)
+	add("HTTPS_PROXY", "https_proxy", httpsProxy)
 	add("NO_PROXY", "no_proxy", cfg.NoProxy)
 	return env
 }

@@ -239,6 +239,10 @@ cloudnative-pg:
 #
 # Use either `proxy` or the Azure Arc `Azure.proxySettings` key, not both; the
 # chart fails if both are enabled.
+#
+# httpsProxy: the collector's OTLP exporter uses gRPC, which only consults the
+# HTTPS proxy, even for plaintext connections. If only httpProxy is set, it is
+# also used as the HTTPS proxy for the collector.
 proxy:
   isProxyEnabled: false
   httpProxy: ""
