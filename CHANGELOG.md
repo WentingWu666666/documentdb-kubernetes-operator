@@ -2,9 +2,19 @@
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-12
+
+Operator, sidecar and Helm chart security patch release. The API remains `documentdb.io/preview`, and the default DocumentDB engine stays at `1.0.0`. The `documentdb.io/v1` API graduation and outbound proxy support are not included.
+
 ### Security
 - Upgrade the cert-manager Go dependency and pinned Arc/Fleet installations to `v1.19.6` to address [CVE-2026-62290](https://github.com/advisories/GHSA-8rvj-mm4h-c258). Existing clusters must upgrade their separately installed cert-manager controller to a patched release (`1.19.6` or `1.20.3`); upgrading the DocumentDB operator alone does not upgrade cert-manager.
 - Upgrade `github.com/klauspost/compress` to `v1.20.2` in the sidecar injector and shared, E2E, and long-haul test modules to address [GO-2026-6865](https://pkg.go.dev/vuln/GO-2026-6865).
+
+### Documentation
+- Port-forward getting-started connections to the gateway Service rather than a PostgreSQL pod.
+
+### Build Maintenance
+- Refresh Debian packages when building the gateway image. Gateway images are released separately; this operator release does not change the default gateway image tag.
 
 ## [1.1.1] - 2026-11-09
 
